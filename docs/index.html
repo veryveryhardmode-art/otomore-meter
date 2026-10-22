@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>音漏れメーター</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=IBM+Plex+Mono:wght@500;600&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<style>
+/* Layout: controls (mode tabs + inputs) | scene scale (summary, ladder, band chart). Stacks to one column on phones. */
+:root{
+  --bg:#eef1f6; --surface:#ffffff; --surface-2:#e3e8f1; --ink:#131a28; --muted:#586277; --line:#d3d9e4;
+  --accent:#2a46cc; --accent-ink:#ffffff;
+  --l0:#13906c; --l1:#5b962a; --l2:#c4860c; --l3:#d4521c; --l4:#c01d48;
+  --font-display:"Dela Gothic One","Hiragino Sans","Yu Gothic",sans-serif;
+  --font-body:"Zen Kaku Gothic New","Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",sans-serif;
+  --font-data:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d1017; --surface:#151a24; --surface-2:#1d2330; --ink:#e6e9f1; --muted:#97a0b4; --line:#2a3141;
+    --accent:#8c9dff; --accent-ink:#0d1017;
+    --l0:#3fc69a; --l1:#95cd5b; --l2:#efb444; --l3:#ff8752; --l4:#ff5f86;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d1017; --surface:#151a24; --surface-2:#1d2330; --ink:#e6e9f1; --muted:#97a0b4; --line:#2a3141;
+  --accent:#8c9dff; --accent-ink:#0d1017;
+  --l0:#3fc69a; --l1:#95cd5b; --l2:#efb444; --l3:#ff8752; --l4:#ff5f86;
+  color-scheme:dark;
+}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.7;-webkit-text-size-adjust:100%}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+.wrap{max-width:1080px;margin:0 auto;padding-block:22px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.top{display:grid;gap:6px;margin-bottom:18px;max-width:46em}
+.top h1{font-family:var(--font-display);font-weight:400;font-size:30px;line-height:1.2;margin:0;letter-spacing:.02em;text-wrap:balance}
+.top p{margin:0;color:var(--muted)}
+.layout{display:grid;gap:22px}
+@media (min-width:900px){.layout{grid-template-columns:minmax(0,370px) minmax(0,1fr);align-items:start}}
+.num{font-family:var(--font-data);font-variant-numeric:tabular-nums}
+h2{font-size:18px;margin:0;line-height:1.4}
+h3{font-size:15px;margin:0;line-height:1.4}
+.sub{font-size:13px;color:var(--muted);margin:2px 0 0}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* tabs */
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--surface-2);border-radius:12px;padding:4px}
+.tab{border:0;background:transparent;padding:10px 6px;border-radius:9px;font-weight:700;font-size:14px;color:var(--muted);cursor:pointer;line-height:1.35}
+.tab[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0/.14)}
+.controls{display:grid;gap:14px;min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;gap:18px;min-width:0}
+.field{display:grid;gap:8px;min-width:0}
+.flabel{font-size:13px;font-weight:700;letter-spacing:.04em;color:var(--muted)}
+.flabel-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.big{font-family:var(--font-data);font-size:22px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.hint{font-size:12px;color:var(--muted);line-height:1.6;margin:0}
+
+/* choices */
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.choice{position:relative;min-width:0}
+.choice label{display:block;height:100%;border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--surface);cursor:pointer}
+.choice input:checked+label{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--surface))}
+.choice input:focus-visible+label{outline:2px solid var(--accent);outline-offset:2px}
+.c-name{display:block;font-weight:700;font-size:14px;line-height:1.4}
+.c-desc{display:block;font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:3px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips .choice label{border-radius:999px;padding:6px 13px;font-size:13.5px;line-height:1.4}
+input[type="range"]{width:100%;accent-color:var(--accent);margin:2px 0}
+select,input[type="number"]{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 10px;min-width:0}
+details.more summary{cursor:pointer;font-size:13px;color:var(--muted);font-weight:700}
+details.more[open] summary{margin-bottom:10px}
+
+/* mic panel */
+.callout{background:var(--surface-2);border-radius:10px;padding:11px 13px;font-size:13px;line-height:1.65}
+.autovol{display:grid;gap:10px}
+.av-on{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:color-mix(in srgb,var(--l0) 10%,var(--surface));border:1px solid color-mix(in srgb,var(--l0) 35%,var(--line));border-radius:10px;padding:10px 12px}
+.av-text{display:grid;font-size:13px;line-height:1.5;min-width:0}
+.av-text span{color:var(--muted);font-size:12px}
+.av-on .btn{text-decoration:none;font-size:13px;padding:8px 12px}
+.sc-help{background:var(--surface-2);border-radius:10px;padding:10px 12px;font-size:13px}
+.sc-help summary{cursor:pointer;font-weight:700}
+.sc-help[open] summary{margin-bottom:8px}
+.sc-steps{margin:8px 0;padding-left:1.3em;display:grid;gap:6px;line-height:1.6}
+.sc-url{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.sc-url code{font-family:var(--font-data);font-size:12px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 8px;word-break:break-all;min-width:0;flex:1 1 220px;user-select:all}
+.sc-url .btn{padding:7px 12px;font-size:13px}
+.callout b{display:block;margin-bottom:2px}
+.howto{margin:0;padding-left:1.3em;font-size:13.5px;display:grid;gap:4px}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.lvl{height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden}
+.lvl i{display:block;height:100%;width:0;background:var(--accent)}
+.msteps{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.msteps li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;font-size:13px;align-items:center}
+.ms-st{color:var(--muted);font-size:12px}
+.msteps li[data-state="run"] .ms-st{color:var(--accent);font-weight:700}
+.msteps li[data-state="done"] .ms-st{color:var(--l0);font-weight:700}
+.ms-bar{grid-column:1/-1;height:4px;background:var(--surface-2);border-radius:2px;overflow:hidden}
+.ms-bar i{display:block;height:100%;width:0;background:var(--accent)}
+.msteps li[data-state="done"] .ms-bar i{background:var(--l0)}
+.status{font-size:14px;font-weight:700;min-height:1.7em}
+.warns{display:grid;gap:8px}
+.warn{background:color-mix(in srgb,var(--l3) 9%,var(--surface));border:1px solid color-mix(in srgb,var(--l3) 35%,var(--line));border-radius:10px;padding:9px 12px;font-size:13px;line-height:1.6}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;font-size:12px;width:100%;min-width:520px}
+th,td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+td{font-family:var(--font-data);font-variant-numeric:tabular-nums}
+th{font-weight:700;color:var(--muted);font-size:11.5px}
+.qok{color:var(--l0)} .qmixed{color:var(--l2)} .qxtalk{color:var(--l4)} .qnone{color:var(--muted)}
+
+/* results */
+.results{display:grid;gap:16px;min-width:0}
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:14px;padding:22px 18px;color:var(--muted);font-size:14px}
+.summary{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;gap:14px}
+.sum-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.sum-cell{display:grid;gap:6px;align-content:start;min-width:0}
+.sum-k{font-size:12.5px;color:var(--muted);font-weight:700}
+.sum-d{font-size:12.5px;color:var(--muted);line-height:1.55}
+.sum-list{margin:0;display:grid;gap:8px;border-top:1px solid var(--line);padding-top:12px}
+.sum-list div{display:grid;grid-template-columns:minmax(0,10.5em) minmax(0,1fr);gap:10px;font-size:13.5px}
+.sum-list dt{color:var(--muted)}
+.sum-list dd{margin:0;font-weight:700}
+.pill{--c:var(--l0);display:inline-flex;align-items:center;gap:7px;justify-self:start;font-size:13px;font-weight:700;padding:4px 11px 4px 9px;border-radius:999px;white-space:nowrap;color:color-mix(in srgb,var(--c) 70%,var(--ink));background:color-mix(in srgb,var(--c) 15%,var(--surface))}
+.lv0{--c:var(--l0)} .lv1{--c:var(--l1)} .lv2{--c:var(--l2)} .lv3{--c:var(--l3)} .lv4{--c:var(--l4)}
+.seg{display:inline-flex;gap:2px;align-items:flex-end}
+.seg i{width:4px;border-radius:1.5px;background:color-mix(in srgb,var(--c) 22%,transparent)}
+.seg i:nth-child(1){height:6px}.seg i:nth-child(2){height:8px}.seg i:nth-child(3){height:10px}.seg i:nth-child(4){height:12px}.seg i:nth-child(5){height:14px}
+.seg i.on{background:var(--c)}
+.ladder-head{display:flex;justify-content:space-between;align-items:end;gap:10px;flex-wrap:wrap}
+.ladder{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center;width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--line);padding:11px 14px;cursor:pointer}
+.ladder li:first-child .row{border-top:0}
+.row[aria-pressed="true"]{background:color-mix(in srgb,var(--accent) 7%,var(--surface))}
+.row:hover{background:color-mix(in srgb,var(--accent) 4%,var(--surface))}
+.row-main{display:grid;min-width:0}
+.row-name{font-weight:700;font-size:14.5px;line-height:1.45}
+.row-meta{font-size:12px;color:var(--muted);line-height:1.5}
+.row-side{display:grid;justify-items:end;gap:3px}
+.row-safe{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.spec{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;gap:10px;min-width:0}
+.spec svg{width:100%;height:auto;display:block}
+.spec .ax{fill:var(--muted);font-family:var(--font-data);font-size:10px}
+.spec .grid{stroke:var(--line);stroke-width:1}
+.spec .amb{fill:color-mix(in srgb,var(--muted) 30%,var(--surface))}
+.spec .lk0{fill:var(--l0)} .spec .lk1{fill:var(--l1)} .spec .lk2{fill:var(--l2)} .spec .lk3{fill:var(--l3)} .spec .lk4{fill:var(--l4)}
+.spec .worst{fill:var(--ink);font-weight:600}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:11px;height:11px;border-radius:2px;display:inline-block}
+.spec-note{font-size:13.5px;margin:0;line-height:1.7}
+.notes{font-size:13px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.notes summary{cursor:pointer;font-weight:700;color:var(--ink)}
+.notes ul{margin:10px 0 0;padding-left:1.2em;display:grid;gap:6px}
+.notes a{color:var(--accent)}
+@media (prefers-reduced-motion:no-preference){.lvl i,.ms-bar i{transition:width .1s linear}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>音漏れメーター</h1>
+    <p>イヤホンの音が隣の人にどれくらい聞こえているかを、場面ごとに判定します。音量と種類から推定するか、有線イヤホンのマイクで実測できます。</p>
+  </header>
+
+  <div class="layout">
+    <div class="controls">
+      <div class="tabs" role="tablist" aria-label="モード">
+        <button class="tab" role="tab" id="tab-est" aria-controls="panel-est" aria-selected="true" type="button">音量と種類から推定</button>
+        <button class="tab" role="tab" id="tab-mic" aria-controls="panel-mic" aria-selected="false" type="button">イヤホンのマイクで実測</button>
+      </div>
+
+      <!-- 推定モード -->
+      <section class="card" id="panel-est" role="tabpanel" aria-labelledby="tab-est">
+        <div class="autovol" id="autoVol">
+          <div class="av-on" id="avOn" hidden>
+            <div class="av-text"><b>iPhoneの音量を自動で読み取りました</b><span id="avTime"></span></div>
+            <a class="btn primary" id="avReread" href="shortcuts://run-shortcut?name=%E9%9F%B3%E6%BC%8F%E3%82%8C%E3%83%A1%E3%83%BC%E3%82%BF%E3%83%BC">音量を読み直す</a>
+          </div>
+          <details class="sc-help" id="scHelp">
+            <summary id="scSummary">ショートカットで、iPhoneの音量を自動で読み取る</summary>
+            <p class="hint">一度作れば、ホーム画面のアイコンをタップするだけで、今の音量でこのページが開きます。音量を変えたら、もう一度タップしてください。</p>
+            <ol class="sc-steps">
+              <li>「ショートカット」アプリを開き、右上の「＋」を押す</li>
+              <li>「アクションを検索」で <b>デバイスの詳細を取得</b> を追加し、青い「デバイス名」をタップして <b>現在の音量</b> に変える</li>
+              <li><b>URL</b> アクションを追加し、下のURLを貼り付ける。続けて、キーボードの上に出る「デバイスの詳細」を押して、URLの最後に入れる</li>
+              <li><b>URLを開く</b> アクションを追加する</li>
+              <li>画面上部の名前を <b>音漏れメーター</b> にする（「音量を読み直す」ボタンがこの名前で呼び出します）</li>
+              <li>名前の横の「⌄」→「ホーム画面に追加」</li>
+            </ol>
+            <div class="sc-url"><code id="scUrl">https://veryveryhardmode-art.github.io/otomore-meter/?v=</code><button class="btn" type="button" id="scCopy">コピー</button></div>
+          </details>
+        </div>
+        <div class="field">
+          <div class="flabel">イヤホンの種類</div>
+          <div class="choice-grid" id="typeChoices"></div>
+        </div>
+        <div class="field" id="fitField">
+          <div class="flabel">イヤーピースのフィット</div>
+          <div class="chips">
+            <div class="choice"><input class="vh" type="radio" name="fit" id="fit-tight" value="tight"><label for="fit-tight">ぴったり密着</label></div>
+            <div class="choice"><input class="vh" type="radio" name="fit" id="fit-normal" value="normal"><label for="fit-normal">ふつう</label></div>
+            <div class="choice"><input class="vh" type="radio" name="fit" id="fit-loose" value="loose"><label for="fit-loose">ゆるい・浅い</label></div>
+          </div>
+        </div>
+        <div class="field">
+          <div class="flabel-row"><label class="flabel" for="vol">iPhoneの音量</label><span class="big" id="volOut">11 / 16</span></div>
+          <input type="range" id="vol" min="0" max="16" step="1" value="11">
+          <p class="hint"><span id="volStep"></span> / 耳に届く音 <b id="earOut" class="num"></b><br><span id="earNote"></span></p>
+        </div>
+        <div class="field">
+          <div class="flabel">曲の音圧</div>
+          <div class="chips">
+            <div class="choice"><input class="vh" type="radio" name="content" id="ct-quiet" value="-6"><label for="ct-quiet">静かめ（クラシック・弾き語り）</label></div>
+            <div class="choice"><input class="vh" type="radio" name="content" id="ct-normal" value="0"><label for="ct-normal">ふつう</label></div>
+            <div class="choice"><input class="vh" type="radio" name="content" id="ct-loud" value="3"><label for="ct-loud">大きめ（EDM・ロック・アニソン）</label></div>
+          </div>
+        </div>
+        <details class="more">
+          <summary>詳細設定</summary>
+          <div class="field">
+            <div class="flabel">同じ目盛りでの鳴りやすさ</div>
+            <div class="chips">
+              <div class="choice"><input class="vh" type="radio" name="sens" id="sn-low" value="-5"><label for="sn-low">小さめ</label></div>
+              <div class="choice"><input class="vh" type="radio" name="sens" id="sn-mid" value="0"><label for="sn-mid">ふつう</label></div>
+              <div class="choice"><input class="vh" type="radio" name="sens" id="sn-high" value="5"><label for="sn-high">大きめ</label></div>
+            </div>
+            <p class="hint">同じ音量の目盛りでも、ほかのイヤホンより明らかに大きく聞こえるなら「大きめ」。</p>
+          </div>
+        </details>
+      </section>
+
+      <!-- 実測モード -->
+      <section class="card" id="panel-mic" role="tabpanel" aria-labelledby="tab-mic" hidden>
+        <div class="callout"><b>使えるのは有線イヤホンのマイクです</b>Bluetoothイヤホンはマイクを使うと通話モードに切り替わり、イヤホン内蔵のエコーキャンセルが流している音を打ち消すため、音漏れを測れません。AirPodsなどはiPhoneアプリ版（iPhone本体のマイクで測ります）か、推定モードを使ってください。</div>
+        <ol class="howto">
+          <li>マイク付きの有線イヤホンを挿し、両耳にしっかり着ける</li>
+          <li>音量はふだん聴いている目盛りにして、測定中は変えない</li>
+          <li>周りの音 → テスト音（マイクは垂らしたまま）→ テスト音（マイクを耳の横へ）の順に測ります。全部で約25秒</li>
+        </ol>
+        <div class="field">
+          <label class="flabel" for="env">いま測っている場所</label>
+          <select id="env"></select>
+          <input type="number" id="envCustom" min="25" max="95" step="1" inputmode="numeric" aria-label="周りの音の大きさ（dB）" hidden>
+          <p class="hint">周りの音の大きさを基準にマイクの感度を合わせます。静かな部屋で測るのがいちばん正確です。</p>
+        </div>
+        <div class="field">
+          <div class="flabel-row"><label class="flabel" for="micDist">マイク（リモコン）と耳の距離</label><span class="big" id="micDistOut">15cm</span></div>
+          <input type="range" id="micDist" min="6" max="30" step="1" value="15">
+        </div>
+        <div class="field">
+          <div class="flabel-row"><label class="flabel" for="micVol">測定するときの音量</label><span class="big" id="micVolOut">11 / 16</span></div>
+          <input type="range" id="micVol" min="1" max="16" step="1" value="11">
+          <p class="hint">「何%までならセーフか」の計算に使います。</p>
+        </div>
+        <div class="field" id="devField" hidden>
+          <label class="flabel" for="dev">使うマイク</label>
+          <select id="dev"></select>
+          <p class="hint">リモコン部分を指で軽くトントン叩いて、下のメーターが動けばイヤホンのマイクです。</p>
+        </div>
+        <div class="field" id="meterField" hidden>
+          <div class="flabel-row"><span class="flabel">マイク入力</span><span class="num" id="lvlOut" style="font-size:12px;color:var(--muted)">—</span></div>
+          <div class="lvl"><i id="lvlBar"></i></div>
+        </div>
+        <ol class="msteps" id="msteps">
+          <li data-k="amb" data-state="idle"><span>① 周りの音（静かに3秒）</span><span class="ms-st">待機</span><span class="ms-bar"><i></i></span></li>
+          <li data-k="far" data-state="idle"><span>② テスト音・マイクは垂らしたまま</span><span class="ms-st">待機</span><span class="ms-bar"><i></i></span></li>
+          <li data-k="near" data-state="idle"><span>③ テスト音・マイクを耳の横2〜3cmへ</span><span class="ms-st">待機</span><span class="ms-bar"><i></i></span></li>
+        </ol>
+        <div class="btns">
+          <button class="btn" type="button" id="btnPrep">マイクを準備する</button>
+          <button class="btn primary" type="button" id="btnRun" disabled>測定をはじめる</button>
+          <button class="btn" type="button" id="btnStop" hidden>中止</button>
+        </div>
+        <div class="status" id="micStatus" aria-live="polite"></div>
+        <div class="warns" id="micWarns"></div>
+        <details class="more" id="measData" hidden>
+          <summary>測定データ</summary>
+          <div class="tablewrap"><table id="measTable"></table></div>
+          <p class="hint" id="measK"></p>
+        </details>
+      </section>
+    </div>
+
+    <div class="results">
+      <div class="empty" id="resEmpty" hidden>まだ測定していません。測定すると、ここに場面ごとの判定が出ます。</div>
+      <div id="resBody" class="results">
+        <div class="summary" id="summary"></div>
+        <div class="ladder-head">
+          <div><h2>場面の物差し</h2><p class="sub">上ほど静かで、音漏れに厳しい場面です。タップすると内訳を表示します。</p></div>
+        </div>
+        <ul class="ladder" id="ladder"></ul>
+        <div class="spec">
+          <h3 id="specTitle">内訳</h3>
+          <svg id="specChart" viewBox="0 0 340 192" role="img" aria-label="帯域ごとの漏れ音と周りの音"></svg>
+          <div class="legend"><span><i style="background:color-mix(in srgb,var(--muted) 30%,var(--surface))"></i>周りの音</span><span><i style="background:var(--l2)"></i>隣の人の耳に届く漏れ音（色は目立ち具合）</span></div>
+          <p class="spec-note" id="specNote"></p>
+        </div>
+      </div>
+      <details class="notes">
+        <summary>計算のしかた</summary>
+        <ul>
+          <li>耳に届く音は、最大音量で約100dB（一般的なスマホとイヤホンの組み合わせ）とし、目盛りはAndroid標準の音量カーブ相当で dB に換算しています。</li>
+          <li>イヤホンの種類ごとに、帯域（125Hz〜8kHz）別の「耳から10cmへ漏れる量」を目安値で持っています。高い音ほど漏れやすい設定です。</li>
+          <li>10cmから隣の人の耳までは、距離が2倍で約6dB下がる計算に、車内や室内の反響ぶんを少し加えています。</li>
+          <li>帯域ごとに「隣の人の耳に届く漏れ音」と「周りの騒音」を比べ、いちばん目立つ帯域で判定します。騒音より12dB以上小さければ聞こえない、6dB以上小さければほぼ気づかれない、騒音を超えると気になる、8dB以上超えて歌やメロディの帯域（500Hz〜2kHz）も聞こえていれば曲までわかる、としています。</li>
+          <li>場面の騒音のうち、新幹線・バスの車内の約70dB、書店の約50dB、図書館の約40dBは<a href="https://www.city.nagoya.jp/kankyo/cmsfiles/contents/0000068/68418/dayori35.pdf" target="_blank" rel="noopener">名古屋市「騒音の目安」</a>をもとにしています。ほかは目安値です。</li>
+          <li>実測モードは、周りの音でマイクの感度を合わせ、マイクの位置を変えた2回の差から電気的な回り込みを取り除いて、耳から10cmの漏れ音を求めます。</li>
+          <li>どちらのモードも誤差は±5dB程度です。判定は目安として使ってください。</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+</div>
+
+<script>
+/*MODEL_START*/
+const BANDS=[125,250,500,1000,2000,4000,8000];
+const BL=['125','250','500','1k','2k','4k','8k'];
+const AW=[-16.1,-8.6,-3.2,0,1.2,1.0,-1.1];          // A特性（オクターブ中心）
+const HEAR=[22,11,4,2,-1,-5,13];                   // 最小可聴値の目安 dB SPL
+const MUSIC=[0,0,-2,-5,-8,-12,-17];                // 一般的な音楽の帯域バランス
+const SHAPES={
+  quiet:[0,-3,-7,-11,-16,-22,-30],   // 空調音中心の静かな室内
+  office:[-2,-2,-3,-6,-10,-16,-24],
+  babble:[-10,-5,0,-2,-7,-13,-21],   // 話し声・食器音
+  train:[0,-1,-4,-9,-15,-21,-29]     // 乗り物（低音中心）
+};
+const MAX_EAR=100;          // 最大音量時に耳に届く音 dBA
+const REVERB_DB=-26;        // 反響ぶん（10cm地点比）
+const TEST_DBFS=-15;        // テスト音のRMS
+const TYPES=[
+  {id:'canal',name:'カナル型',desc:'耳の穴にゴムを差し込む。AirPods Pro など',loss:[-58,-54,-50,-46,-42,-40,-42],fit:true},
+  {id:'inner',name:'インナーイヤー型',desc:'耳に乗せるだけ。EarPods、ProではないAirPods など',loss:[-36,-32,-28,-24,-20,-18,-20]},
+  {id:'open',name:'オープンイヤー',desc:'耳をふさがない耳掛け・イヤーカフ型',loss:[-26,-23,-19,-15,-12,-11,-13]},
+  {id:'bone',name:'骨伝導',desc:'耳の前の骨を振動させるタイプ',loss:[-40,-32,-24,-19,-16,-16,-20]},
+  {id:'hpclosed',name:'密閉型ヘッドホン',desc:'耳をすっぽり覆うタイプ',loss:[-42,-38,-34,-32,-30,-30,-32]},
+  {id:'hpopen',name:'開放型・オンイヤー',desc:'外側が網目、または耳に乗せるヘッドホン',loss:[-20,-18,-15,-13,-11,-10,-12]}
+];
+const FIT={tight:[0,0,0,0,0,0,0],normal:[5,4,4,3,3,3,3],loose:[14,12,10,9,8,8,8]};
+const SCENES=[
+  {id:'elev',name:'エレベーター',where:'すぐ隣',d:0.5,dBA:40,shape:'quiet'},
+  {id:'lib',name:'図書館・自習室',where:'隣の席',d:0.7,dBA:40,shape:'quiet'},
+  {id:'shinStop',name:'新幹線（停車中）',where:'隣の席',d:0.55,dBA:50,shape:'quiet'},
+  {id:'office',name:'オフィス',where:'隣のデスク',d:0.9,dBA:50,shape:'office'},
+  {id:'cafe',name:'カフェ',where:'隣の席',d:0.7,dBA:60,shape:'babble'},
+  {id:'shinRun',name:'新幹線（走行中）',where:'隣の席',d:0.55,dBA:68,shape:'train'},
+  {id:'train',name:'満員電車',where:'密着して立つ',d:0.3,dBA:75,shape:'train'},
+  {id:'subway',name:'地下鉄（走行中）',where:'隣の席',d:0.5,dBA:80,shape:'train'}
+];
+const ENVS=[
+  {id:'quiet',name:'静かな部屋（夜・エアコンなし）約35dB',dBA:35,shape:'quiet'},
+  {id:'room',name:'ふつうの部屋（エアコン・冷蔵庫の音）約40dB',dBA:40,shape:'quiet'},
+  {id:'office',name:'オフィス・店内 約50dB',dBA:50,shape:'office'},
+  {id:'cafe',name:'カフェ・ファミレス 約60dB',dBA:60,shape:'babble'},
+  {id:'shin',name:'新幹線の車内（走行中）約68dB',dBA:68,shape:'train'},
+  {id:'train',name:'電車の車内（走行中）約75dB',dBA:75,shape:'train'},
+  {id:'custom',name:'数値を入力（騒音計アプリの値など）',dBA:null,shape:'office'}
+];
+const LEVELS=[
+  {name:'聞こえない',desc:'隣の人には聞こえません。'},
+  {name:'ほぼ気づかれない',desc:'周りが静かになった瞬間だけ、かすかに聞こえることがあります。'},
+  {name:'気づく人は気づく',desc:'シャカシャカ音として聞こえています。'},
+  {name:'気になる',desc:'隣の人が気にしやすいレベルです。'},
+  {name:'曲までわかる',desc:'何の曲か聞き取れるほど漏れています。'}
+];
+const VC=[[1,-58],[20,-40],[60,-17],[100,0]];   // 音量カーブ（%→dB）
+
+function volDb(p){
+  if(!(p>=1)) return -Infinity;
+  for(let i=0;i<VC.length-1;i++){const [p0,d0]=VC[i],[p1,d1]=VC[i+1];if(p<=p1) return d0+(p-p0)/(p1-p0)*(d1-d0);}
+  return 0;
+}
+function volPct(db){
+  if(db>=0) return 100;
+  if(!(db>=VC[0][1])) return 0;
+  for(let i=0;i<VC.length-1;i++){const [p0,d0]=VC[i],[p1,d1]=VC[i+1];if(db<=d1) return Math.floor(p0+(db-d0)/(d1-d0)*(p1-p0));}
+  return 100;
+}
+function aSum(levels,idx){
+  let s=0;(idx||levels.map((_,i)=>i)).forEach(i=>{const v=levels[i];if(v!=null&&isFinite(v)) s+=10**((v+AW[i])/10);});
+  return 10*Math.log10(s);
+}
+function bandsFromA(LA,shape){const k=LA-aSum(shape);return shape.map(s=>s+k);}
+function distF(d){return 10*Math.log10((0.1/d)**2+10**(REVERB_DB/10));}
+function levelOf(m){return m<=-12?0:m<=-6?1:m<=0?2:m<=8?3:4;}
+function earLevel(p){return MAX_EAR+volDb(p.vol)+p.content+p.sens;}
+function estLeak(p){
+  const t=TYPES.find(x=>x.id===p.type);
+  const inEar=bandsFromA(earLevel(p),MUSIC);
+  return inEar.map((L,i)=>L+t.loss[i]+(t.fit?FIT[p.fit][i]:0));
+}
+function evalScene(leak,sc){
+  const amb=bandsFromA(sc.dBA,SHAPES[sc.shape]);const df=distF(sc.d);
+  let m=-Infinity,worst=-1;const nb=[],mg=[];
+  leak.forEach((v,i)=>{
+    if(v==null){nb.push(null);mg.push(null);return;}
+    const x=v+df+1;                       // +1dB: 反対側の耳のぶん
+    const g=x-Math.max(amb[i],HEAR[i]);
+    nb.push(x);mg.push(g);if(g>m){m=g;worst=i;}
+  });
+  // 「曲までわかる」は高音のシャカシャカだけでなく、歌やメロディの帯域（500Hz〜2kHz）も聞こえているときだけ
+  const mid=Math.max(...[2,3,4].map(i=>mg[i]==null?-Infinity:mg[i]));
+  let level=levelOf(m);if(level===4&&!(mid>0)) level=3;
+  return {amb,nb,mg,m,worst,level,mid};
+}
+function safePct(base,m){
+  const vb=volDb(base);
+  if(!isFinite(vb)||!isFinite(m)) return 100;
+  return volPct(vb+(-6-m));
+}
+function computeAll(leak,base){
+  return SCENES.map(sc=>{const ev=evalScene(leak,sc);return Object.assign({sc,safe:safePct(base,ev.m)},ev);});
+}
+function computeMeas(N,P1,P2,env,micDistCm){
+  const idx=[1,2,3,4,5,6];
+  const envSub=aSum(bandsFromA(env.dBA,SHAPES[env.shape]),idx);
+  let nA=0;idx.forEach(i=>{nA+=N[i]*10**(AW[i]/10);});
+  if(!(nA>0)) throw new Error('マイクの入力がありませんでした');
+  const K=envSub-10*Math.log10(nA);
+  const gF=(0.1/(micDistCm/100))**2,gN=(0.1/0.03)**2;
+  const leak10=[null],q=[null],r=[null];
+  idx.forEach(i=>{
+    const n=N[i],e1=P1[i]-n,e2=P2[i]-n,det1=P1[i]>n*1.26,det2=P2[i]>n*1.26;
+    let A,s,rr=null;
+    if(!det2){A=0.26*n/gN;s='none';}
+    else if(!det1){A=e2/gN;s='ok';rr=10*Math.log10(e2/(0.26*n));}
+    else{
+      rr=10*Math.log10(e2/e1);
+      A=(e2-e1)/(gN-gF);
+      s=rr>=6?'ok':rr>=2?'mixed':'xtalk';
+      if(!(A>0)) A=0.26*n/gN;
+    }
+    leak10.push(10*Math.log10(A)+K);q.push(s);r.push(rr);
+  });
+  const toDb=a=>a.map(v=>v>0?10*Math.log10(v)+K:null);
+  return {leak10,q,r,K,ambDb:toDb(N),farDb:toDb(P1),nearDb:toDb(P2)};
+}
+function equivType(meas,vol){
+  const idx=[3,4,5,6].filter(i=>meas.q[i]==='ok'||meas.q[i]==='mixed');
+  if(!idx.length) return null;
+  let best=null;
+  TYPES.forEach(t=>{
+    const est=estLeak({type:t.id,fit:'normal',vol,content:0,sens:0});
+    const diff=idx.reduce((s,i)=>s+(meas.leak10[i]-est[i]),0)/idx.length;
+    if(!best||Math.abs(diff)<Math.abs(best.diff)) best={t,diff};
+  });
+  return best;
+}
+/*MODEL_END*/
+
+(function(){
+const $=s=>document.querySelector(s);
+const $$=s=>Array.from(document.querySelectorAll(s));
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const KEY='otomore-meter-v1';
+const state={mode:'est',type:'inner',fit:'normal',vol:70,content:0,sens:0,env:'room',envCustom:45,micDist:15,micVol:70,sel:'shinRun',meas:null};
+try{const s=JSON.parse(localStorage.getItem(KEY)||'{}');['mode','type','fit','vol','content','sens','env','envCustom','micDist','micVol','sel'].forEach(k=>{if(s[k]!==undefined) state[k]=s[k];});}catch(e){}
+/* ショートカットから渡された音量（?v=0.625 または #v62） */
+function readUrlVolume(){
+  let raw=null;
+  try{raw=new URLSearchParams(location.search).get('v');}catch(e){}
+  if(raw==null){const m=/^#v([0-9]+(?:[.,][0-9]+)?)$/.exec(location.hash||'');if(m) raw=m[1];}
+  if(raw==null||raw==='') return null;
+  const x=parseFloat(String(raw).replace(',','.'));
+  if(!isFinite(x)||x<0) return null;
+  return x<=1?x*100:Math.min(100,x);
+}
+const urlVol=readUrlVolume();
+let autoVolAt=null;
+if(urlVol!=null){state.vol=urlVol;state.mode='est';autoVolAt=new Date();}
+const toStep=p=>Math.max(0,Math.min(16,Math.round(p/6.25)));
+const safeStep=p=>Math.max(0,Math.min(16,Math.floor(p/6.25+1e-6)));
+if(!TYPES.some(t=>t.id===state.type)) state.type='inner';
+if(!SCENES.some(s=>s.id===state.sel)) state.sel='shinRun';
+function save(){try{const o={};['mode','type','fit','vol','content','sens','env','envCustom','micDist','micVol','sel'].forEach(k=>o[k]=state[k]);localStorage.setItem(KEY,JSON.stringify(o));}catch(e){}}
+
+/* ---- controls ---- */
+$('#typeChoices').innerHTML=TYPES.map(t=>`<div class="choice"><input class="vh" type="radio" name="type" id="type-${t.id}" value="${t.id}"><label for="type-${t.id}"><span class="c-name">${t.name}</span><span class="c-desc">${t.desc}</span></label></div>`).join('');
+$('#env').innerHTML=ENVS.map(e=>`<option value="${e.id}">${e.name}</option>`).join('');
+function syncInputs(){
+  const set=(name,val)=>{const el=document.querySelector(`input[name="${name}"][value="${val}"]`);if(el) el.checked=true;};
+  set('type',state.type);set('fit',state.fit);set('content',state.content);set('sens',state.sens);
+  $('#vol').value=toStep(state.vol);$('#micVol').value=Math.max(1,toStep(state.micVol));$('#micDist').value=state.micDist;
+  $('#env').value=state.env;$('#envCustom').value=state.envCustom;$('#envCustom').hidden=state.env!=='custom';
+  setMode(state.mode,true);
+}
+document.addEventListener('change',e=>{
+  const t=e.target;
+  if(t.name==='type') state.type=t.value;
+  else if(t.name==='fit') state.fit=t.value;
+  else if(t.name==='content') state.content=+t.value;
+  else if(t.name==='sens') state.sens=+t.value;
+  else if(t.id==='env'){state.env=t.value;$('#envCustom').hidden=state.env!=='custom';recalcMeas();}
+  else if(t.id==='envCustom'){state.envCustom=+t.value||45;recalcMeas();}
+  else if(t.id==='dev'){openStream(t.value).catch(micError);return;}
+  else return;
+  save();render();
+});
+$('#vol').addEventListener('input',e=>{state.vol=+e.target.value*6.25;autoVolAt=null;save();render();});
+$('#micVol').addEventListener('input',e=>{state.micVol=+e.target.value*6.25;save();render();});
+$('#scCopy').addEventListener('click',async()=>{
+  const t=$('#scUrl').textContent,b=$('#scCopy');
+  try{await navigator.clipboard.writeText(t);b.textContent='コピーしました';}
+  catch(e){const r=document.createRange();r.selectNodeContents($('#scUrl'));const s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent='選択しました';}
+  setTimeout(()=>{b.textContent='コピー';},2000);
+});
+$('#micDist').addEventListener('input',e=>{state.micDist=+e.target.value;save();recalcMeas();render();});
+function setMode(m,silent){
+  state.mode=m;
+  $('#tab-est').setAttribute('aria-selected',m==='est');$('#tab-mic').setAttribute('aria-selected',m==='mic');
+  $('#panel-est').hidden=m!=='est';$('#panel-mic').hidden=m!=='mic';
+  if(!silent){save();render();}
+}
+$('#tab-est').addEventListener('click',()=>setMode('est'));
+$('#tab-mic').addEventListener('click',()=>setMode('mic'));
+$('#ladder').addEventListener('click',e=>{const b=e.target.closest('.row');if(!b) return;state.sel=b.dataset.id;save();render();});
+
+/* ---- render ---- */
+function estParams(){return {type:state.type,fit:state.fit,vol:state.vol,content:state.content,sens:state.sens};}
+function pill(l){return `<span class="pill lv${l}"><span class="seg" aria-hidden="true">${[0,1,2,3,4].map(k=>`<i${k<=l?' class="on"':''}></i>`).join('')}</span>${LEVELS[l].name}</span>`;}
+function safeText(p){const s=safeStep(p);return s>=16?'最大音量でもOK':s<1?'1段階でも漏れる':`${s} / 16までOK`;}
+function render(){
+  $('#volOut').textContent=`${toStep(state.vol)} / 16`;
+  $('#volStep').textContent=state.vol<1?'ミュート':`${Math.round(state.vol)}%`;
+  $('#avOn').hidden=!autoVolAt;
+  if(autoVolAt){const d=autoVolAt;$('#avTime').textContent=`${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')} に読み取り・${Math.round(state.vol)}%`;}
+  $('#scSummary').textContent=autoVolAt?'ショートカットの作り方':'ショートカットで、iPhoneの音量を自動で読み取る';
+  const LA=earLevel(estParams());
+  $('#earOut').textContent=isFinite(LA)?`約${Math.round(LA)}dB`:'なし';
+  $('#earNote').textContent=!isFinite(LA)?'':LA>85?'長時間聴くと耳への負担が大きい音量です（WHOの目安は80dBで週40時間まで）。':'WHOの目安は80dBで週40時間までです。';
+  $('#fitField').hidden=!TYPES.find(t=>t.id===state.type).fit;
+  $('#micVolOut').textContent=`${toStep(state.micVol)} / 16`;
+  $('#micDistOut').textContent=state.micDist+'cm';
+
+  let leak=null,base=state.vol;
+  if(state.mode==='est') leak=estLeak(estParams());
+  else if(state.meas){leak=state.meas.leak10;base=state.micVol;}
+  $('#resEmpty').hidden=!!leak;$('#resBody').hidden=!leak;
+  if(!leak) return;
+  const all=computeAll(leak,base);
+  renderSummary(all);
+  $('#ladder').innerHTML=all.map(x=>`<li><button type="button" class="row" data-id="${x.sc.id}" aria-pressed="${x.sc.id===state.sel}">
+    <span class="row-main"><span class="row-name">${x.sc.name}</span><span class="row-meta">${x.sc.where}・${Math.round(x.sc.d*100)}cm・周りの音 ${x.sc.dBA}dB</span></span>
+    <span class="row-side">${pill(x.level)}<span class="row-safe">${safeText(x.safe)}</span></span></button></li>`).join('');
+  renderChart(all.find(x=>x.sc.id===state.sel)||all[5]);
+}
+function renderSummary(all){
+  const run=all.find(x=>x.sc.id==='shinRun'),stop=all.find(x=>x.sc.id==='shinStop');
+  const minSafe=Math.min(...all.map(x=>x.safe));
+  const noticed=all.filter(x=>x.level>=2).map(x=>x.sc.name);
+  let extra='';
+  if(state.mode==='mic'&&state.meas){
+    const eq=equivType(state.meas,state.micVol);
+    const qs=state.meas.q.slice(1);
+    const ok=qs.filter(s=>s==='ok').length,bad=qs.filter(s=>s==='xtalk').length,none=qs.filter(s=>s==='none').length;
+    if(eq) extra+=`<div><dt>漏れ方の近さ</dt><dd>${eq.t.name}に近い（推定値との差 ${eq.diff>=0?'+':''}${Math.round(eq.diff)}dB）</dd></div>`;
+    extra+=`<div><dt>測定の確かさ</dt><dd>6帯域のうち 音漏れを確認${ok}・回り込み優勢${bad}・検出せず${none}</dd></div>`;
+  }
+  $('#summary').innerHTML=`<div class="sum-grid">
+    <div class="sum-cell"><div class="sum-k">新幹線・隣の席（走行中）</div>${pill(run.level)}<div class="sum-d">${LEVELS[run.level].desc}</div></div>
+    <div class="sum-cell"><div class="sum-k">停車した瞬間</div>${pill(stop.level)}<div class="sum-d">${LEVELS[stop.level].desc}</div></div>
+  </div>
+  <dl class="sum-list">
+    <div><dt>気づかれやすい場面</dt><dd>${noticed.length?noticed.join('、'):'なし'}</dd></div>
+    <div><dt>どこでもセーフな音量</dt><dd>${safeText(minSafe)}</dd></div>${extra}
+  </dl>`;
+}
+function renderChart(x){
+  $('#specTitle').textContent=`内訳：${x.sc.name}・${x.sc.where}`;
+  const L=30,R=334,T=12,B=162,gw=(R-L)/7;
+  const y=v=>B-(Math.max(0,Math.min(90,v))/90)*(B-T);
+  let s='';
+  [0,20,40,60,80].forEach(v=>{s+=`<line class="grid" x1="${L}" x2="${R}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L-5}" y="${y(v)+3.5}" text-anchor="end">${v}</text>`;});
+  s+=`<text class="ax" x="${L-5}" y="${T-2}" text-anchor="end">dB</text>`;
+  for(let i=0;i<7;i++){
+    const cx=L+gw*(i+.5);const a=Math.max(x.amb[i],HEAR[i]);
+    s+=`<rect class="amb" x="${(cx-15).toFixed(1)}" width="13" y="${y(a).toFixed(1)}" height="${(B-y(a)).toFixed(1)}" rx="2"/>`;
+    if(x.nb[i]!=null&&isFinite(x.nb[i])){
+      const v=x.nb[i];
+      s+=`<rect class="lk${levelOf(x.mg[i])}" x="${(cx+2).toFixed(1)}" width="13" y="${y(v).toFixed(1)}" height="${(B-y(v)).toFixed(1)}" rx="2"/>`;
+    }
+    s+=`<text class="ax${i===x.worst?' worst':''}" x="${cx.toFixed(1)}" y="${B+15}" text-anchor="middle">${BL[i]}</text>`;
+  }
+  s+=`<text class="ax" x="${R}" y="${B+28}" text-anchor="end">帯域（Hz）</text>`;
+  $('#specChart').innerHTML=s;
+  let note;
+  if(x.worst<0) note='音が出ていないので、漏れもありません。';
+  else{
+    const i=x.worst,g=Math.round(x.mg[i]);
+    note=`いちばん目立つのは ${BL[i]}Hz 帯です。隣の人の耳の位置で約${Math.round(x.nb[i])}dB、周りの音は約${Math.round(Math.max(x.amb[i],HEAR[i]))}dB（差 ${g>0?'+':''}${g}dB）。`;
+    if(i>=4) note+='高い音ほどイヤホンから漏れやすく、乗り物の騒音（低い音が中心）にも埋もれにくいので、シャカシャカ音として目立ちます。';
+    else if(i<=2) note+='低めの音が漏れています。耳への密着が甘いと低音が抜けやすくなります。';
+  }
+  $('#specNote').textContent=note;
+}
+
+/* ---- measurement ---- */
+const M={ctx:null,stream:null,src:null,an:null,sink:null,testBuf:null,raf:0,abort:false,running:false,settings:{},label:'',active:new Set(),raw:null,devWarns:[],measWarns:[]};
+function status(t){$('#micStatus').textContent=t;}
+function renderWarns(){$('#micWarns').innerHTML=[...M.devWarns,...M.measWarns].map(w=>`<div class="warn">${w}</div>`).join('');}
+function envLevel(){
+  const e=ENVS.find(x=>x.id===state.env)||ENVS[1];
+  if(e.id!=='custom') return e;
+  const v=Math.max(25,Math.min(95,+state.envCustom||45));
+  return {dBA:v,shape:v<50?'quiet':v<62?'office':'train'};
+}
+function micError(e){
+  const n=e&&e.name;
+  let msg;
+  if(!window.isSecureContext) msg='このページは安全な接続（HTTPS）で開かれていないため、マイクを使えません。';
+  else if(n==='NotFoundError'||n==='OverconstrainedError') msg='マイクが見つかりません。マイク付きの有線イヤホンが挿さっているか確認してください。';
+  else if(n==='NotAllowedError'||n==='SecurityError'||n==='NotSupportedError') msg='マイクを使えませんでした。許可を拒否した場合はブラウザの設定から許可してください。claude.ai の中で開いている場合、この表示ではマイクが使えないので、HTMLファイルをPCのChrome・Edgeで開くか、HTTPSのサイトに置いて開いてください。';
+  else msg='マイクを使えませんでした（'+esc(n||e.message||'不明なエラー')+'）。';
+  status('');M.devWarns=[msg];renderWarns();
+}
+function closeStream(){
+  cancelAnimationFrame(M.raf);
+  try{M.src&&M.src.disconnect();M.an&&M.an.disconnect();M.sink&&M.sink.disconnect();}catch(e){}
+  if(M.stream) M.stream.getTracks().forEach(t=>t.stop());
+  M.stream=M.src=M.an=M.sink=null;
+}
+async function openStream(deviceId){
+  closeStream();
+  const c={echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:1};
+  if(deviceId) c.deviceId={exact:deviceId};
+  M.stream=await navigator.mediaDevices.getUserMedia({audio:c});
+  M.src=M.ctx.createMediaStreamSource(M.stream);
+  M.an=M.ctx.createAnalyser();M.an.fftSize=8192;M.an.smoothingTimeConstant=0;
+  M.sink=M.ctx.createGain();M.sink.gain.value=0;
+  M.src.connect(M.an);M.an.connect(M.sink);M.sink.connect(M.ctx.destination);
+  const tr=M.stream.getAudioTracks()[0];
+  M.settings=tr.getSettings?tr.getSettings():{};M.label=tr.label||'';
+  const w=[];
+  if(/bluetooth|airpods|buds|hands-?free|ハンズフリー|wf-|linkbuds/i.test(M.label)) w.push(`「${esc(M.label)}」はBluetoothのマイクのようです。通話モードとエコーキャンセルの影響で音漏れを正しく測れません。有線イヤホンを使うか、推定モードを使ってください。`);
+  if(M.settings.echoCancellation===true) w.push('このブラウザではエコーキャンセルを止められませんでした。テスト音が打ち消され、音漏れが小さく出る可能性があります。');
+  if(M.settings.autoGainControl===true) w.push('マイクの自動音量調整が有効のままです。測定の途中で感度が変わり、結果がずれる可能性があります。');
+  M.devWarns=w;renderWarns();
+  $('#meterField').hidden=false;startMeter();
+}
+function startMeter(){
+  cancelAnimationFrame(M.raf);
+  const buf=new Float32Array(M.an.fftSize);
+  const tick=()=>{
+    if(!M.an) return;
+    M.an.getFloatTimeDomainData(buf);let s=0;for(let i=0;i<buf.length;i++) s+=buf[i]*buf[i];
+    const db=10*Math.log10(s/buf.length+1e-12);
+    $('#lvlBar').style.width=(Math.max(0,Math.min(1,(db+80)/80))*100).toFixed(1)+'%';
+    $('#lvlOut').textContent=Math.round(db)+' dBFS';
+    M.raf=requestAnimationFrame(tick);
+  };
+  tick();
+}
+async function listDevices(){
+  const devs=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='audioinput');
+  const cur=M.settings.deviceId;
+  $('#dev').innerHTML=devs.map((d,i)=>`<option value="${esc(d.deviceId)}"${d.deviceId===cur?' selected':''}>${esc(d.label||'マイク '+(i+1))}</option>`).join('');
+  $('#devField').hidden=devs.length<1;
+}
+$('#btnPrep').addEventListener('click',async()=>{
+  status('マイクの許可を求めています…');
+  try{
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) throw Object.assign(new Error('getUserMedia'),{name:'NotSupportedError'});
+    if(!M.ctx) M.ctx=new (window.AudioContext||window.webkitAudioContext)();
+    await M.ctx.resume();
+    await openStream();
+    await listDevices();
+    $('#btnRun').disabled=false;$('#btnPrep').textContent='マイクを準備し直す';
+    status('準備できました。イヤホンを着けて「測定をはじめる」を押してください。');
+  }catch(e){micError(e);}
+});
+function fft(re,im,inv){
+  const n=re.length;
+  for(let i=1,j=0;i<n;i++){let bit=n>>1;for(;j&bit;bit>>=1) j^=bit;j^=bit;if(i<j){let t=re[i];re[i]=re[j];re[j]=t;t=im[i];im[i]=im[j];im[j]=t;}}
+  for(let len=2;len<=n;len<<=1){
+    const ang=2*Math.PI/len*(inv?1:-1),wr=Math.cos(ang),wi=Math.sin(ang),h=len>>1;
+    for(let i=0;i<n;i+=len){let cr=1,ci=0;
+      for(let k=0;k<h;k++){const a=i+k,b=a+h;const br=re[b]*cr-im[b]*ci,bi=re[b]*ci+im[b]*cr;
+        re[b]=re[a]-br;im[b]=im[a]-bi;re[a]+=br;im[a]+=bi;const t=cr*wr-ci*wi;ci=cr*wi+ci*wr;cr=t;}}
+  }
+}
+function shapeAt(f){const x=Math.log2(f/125);if(x<=0) return MUSIC[0];if(x>=6) return MUSIC[6]-(x-6)*6;const i=Math.floor(x),t=x-i;return MUSIC[i]+(MUSIC[i+1]-MUSIC[i])*t;}
+function makeTestBuffer(c){
+  const sr=c.sampleRate,N=65536,re=new Float64Array(N),im=new Float64Array(N);
+  for(let k=1;k<N/2;k++){
+    const f=k*sr/N;if(f<60||f>14000) continue;
+    const mag=10**((shapeAt(f)-10*Math.log10(f/1000))/20),ph=Math.random()*2*Math.PI;
+    re[k]=mag*Math.cos(ph);im[k]=mag*Math.sin(ph);re[N-k]=re[k];im[N-k]=-im[k];
+  }
+  fft(re,im,true);
+  let s=0,pk=0;for(let i=0;i<N;i++){s+=re[i]*re[i];pk=Math.max(pk,Math.abs(re[i]));}
+  let g=10**(TEST_DBFS/20)/Math.sqrt(s/N);if(pk*g>0.95) g=0.95/pk;
+  const b=c.createBuffer(1,N,sr),ch=b.getChannelData(0);for(let i=0;i<N;i++) ch[i]=re[i]*g;
+  return b;
+}
+function playTest(){
+  const c=M.ctx,src=c.createBufferSource(),g=c.createGain(),t=c.currentTime;
+  src.buffer=M.testBuf;src.loop=true;
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(1,t+0.08);
+  src.connect(g);g.connect(c.destination);src.start(t);
+  const stop=()=>{try{const t2=c.currentTime;g.gain.cancelScheduledValues(t2);g.gain.setValueAtTime(g.gain.value,t2);g.gain.linearRampToValueAtTime(0,t2+0.06);src.stop(t2+0.08);}catch(e){}M.active.delete(stop);};
+  M.active.add(stop);return stop;
+}
+function bandPow(acc,sr,fs){
+  return BANDS.map(fc=>{const i0=Math.ceil(fc/Math.SQRT2*fs/sr),i1=Math.min(acc.length-1,Math.floor(fc*Math.SQRT2*fs/sr));let s=0;for(let i=i0;i<=i1;i++) s+=acc[i];return s;});
+}
+async function measure(ms,onP){
+  const an=M.an,n=an.frequencyBinCount,acc=new Float64Array(n),tmp=new Float32Array(n);
+  let fr=0;const t0=performance.now();
+  while(true){
+    const el=performance.now()-t0;if(el>=ms) break;
+    if(M.abort) throw new Error('abort');
+    an.getFloatFrequencyData(tmp);for(let i=0;i<n;i++) acc[i]+=10**(tmp[i]/10);
+    fr++;onP(el/ms);await sleep(60);
+  }
+  onP(1);for(let i=0;i<n;i++) acc[i]/=Math.max(fr,1);
+  return bandPow(acc,M.ctx.sampleRate,an.fftSize);
+}
+function step(k,st,p){
+  const li=document.querySelector(`#msteps li[data-k="${k}"]`);
+  if(st){li.dataset.state=st;li.querySelector('.ms-st').textContent={idle:'待機',run:'測定中',done:'完了'}[st];}
+  if(p!=null) li.querySelector('.ms-bar i').style.width=(p*100).toFixed(1)+'%';
+}
+async function countdown(sec,msg){for(let i=sec;i>0;i--){if(M.abort) throw new Error('abort');status(`${msg}　${i}`);await sleep(1000);}}
+function stopAll(){Array.from(M.active).forEach(f=>f());}
+function recalcMeas(){
+  if(!M.raw) return;
+  try{state.meas=computeMeas(M.raw.N,M.raw.P1,M.raw.P2,envLevel(),state.micDist);renderMeasTable();}catch(e){}
+}
+function renderMeasTable(){
+  const m=state.meas;if(!m) return;
+  const QL={ok:'音漏れ',mixed:'回り込み混在',xtalk:'回り込み優勢',none:'検出せず'};
+  const f=v=>v==null||!isFinite(v)?'—':v.toFixed(1);
+  let h='<tr><th>帯域</th><th>①周りの音</th><th>②垂らす</th><th>③耳の横</th><th>②→③の増加</th><th>判定</th><th>10cm換算</th></tr>';
+  for(let i=1;i<7;i++) h+=`<tr><td>${BL[i]}Hz</td><td>${f(m.ambDb[i])}</td><td>${f(m.farDb[i])}</td><td>${f(m.nearDb[i])}</td><td>${m.r[i]==null?'—':(m.q[i]==='ok'&&m.farDb[i]!=null&&m.farDb[i]<=m.ambDb[i]+1?'≥':'')+f(m.r[i])}</td><td class="q${m.q[i]}">${QL[m.q[i]]}</td><td>${m.q[i]==='none'?'≤':''}${f(m.leak10[i])}</td></tr>`;
+  $('#measTable').innerHTML=h;
+  $('#measK').textContent=`単位はdB（周りの音で感度を合わせた値）。感度補正 ${m.K.toFixed(1)}dB、マイク距離 ${state.micDist}cm と 3cm で計算。純粋な音漏れなら②→③で約${(20*Math.log10(state.micDist/3)).toFixed(0)}dB増えます。`;
+  $('#measData').hidden=false;
+  const w=[];
+  if(m.q.slice(1).every(s=>s==='none')) w.push('テスト音を検出できませんでした。音量が0になっていないか、マイクがイヤホンのものになっているか確認してください。漏れがとても小さい可能性もあります。');
+  else if([3,4,5,6].filter(i=>m.q[i]==='xtalk').length>=2) w.push('高音域で、ケーブル内の電気的な回り込みが音漏れより大きく出ています。この帯域の結果は不確かなので、推定モードの結果も合わせて見てください。');
+  M.measWarns=w;renderWarns();
+}
+$('#btnRun').addEventListener('click',async()=>{
+  if(M.running||!M.an) return;
+  M.running=true;M.abort=false;
+  $('#btnRun').disabled=true;$('#btnPrep').disabled=true;$('#btnStop').hidden=false;
+  ['amb','far','near'].forEach(k=>step(k,'idle',0));M.measWarns=[];renderWarns();
+  try{
+    await M.ctx.resume();
+    if(!M.testBuf||M.testBuf.sampleRate!==M.ctx.sampleRate) M.testBuf=makeTestBuffer(M.ctx);
+    step('amb','run');status('周りの音を測っています。音を立てずに待ってください');await sleep(400);
+    const N=await measure(3000,p=>step('amb',null,p));step('amb','done');
+    await countdown(3,'テスト音を流します。マイクは垂らしたまま');
+    step('far','run');status('テスト音を測定中（マイクは垂らしたまま）');let stop=playTest();await sleep(700);
+    const P1=await measure(3500,p=>step('far',null,p));stop();step('far','done');
+    await countdown(5,'リモコン（マイク部分）をつまんで、イヤホンの横2〜3cmへ');
+    step('near','run');status('テスト音を測定中（マイクは耳の横）');stop=playTest();await sleep(700);
+    const P2=await measure(3500,p=>step('near',null,p));stop();step('near','done');
+    M.raw={N,P1,P2};
+    state.meas=computeMeas(N,P1,P2,envLevel(),state.micDist);
+    renderMeasTable();render();
+    status('測定が終わりました。場面ごとの判定を表示しています。');
+  }catch(e){
+    stopAll();
+    status(e.message==='abort'?'中止しました。':'測定できませんでした：'+e.message);
+  }finally{
+    M.running=false;$('#btnRun').disabled=false;$('#btnPrep').disabled=false;$('#btnStop').hidden=true;
+  }
+});
+$('#btnStop').addEventListener('click',()=>{M.abort=true;stopAll();});
+
+syncInputs();render();
+})();
+</script>
+
+</body>
+</html>
