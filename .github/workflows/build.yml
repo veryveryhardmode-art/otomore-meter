@@ -1,0 +1,91 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-ipa
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode version
+        shell: bash
+        run: xcodebuild -version
+
+      - name: Check model (same inputs as the web version)
+        shell: bash
+        run: |
+          swiftc -O \
+            OtomoreMeter/Model.swift \
+            OtomoreMeter/EarphoneCatalog.swift \
+            OtomoreMeter/DSP.swift \
+            Tests/ModelCheck/main.swift \
+            -swift-version 5 \
+            -o modelcheck
+          ./modelcheck | tee modelcheck.txt
+
+      - name: Install XcodeGen
+        shell: bash
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        shell: bash
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        shell: bash
+        run: |
+          xcodebuild \
+            -project OtomoreMeter.xcodeproj \
+            -target OtomoreMeter \
+            -configuration Release \
+            -sdk iphoneos \
+            SYMROOT="$PWD/build" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build.log
+
+      - name: Show compile errors
+        if: failure()
+        shell: bash
+        run: grep -E "error:" build.log | sort -u | head -80 || true
+
+      - name: Package IPA
+        shell: bash
+        run: |
+          APP="build/Release-iphoneos/OtomoreMeter.app"
+          test -d "$APP"
+          rm -rf Payload
+          mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry OtomoreMeter.ipa Payload
+          ls -la OtomoreMeter.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OtomoreMeter-ipa
+          path: |
+            OtomoreMeter.ipa
+            modelcheck.txt
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="build-${{ github.run_number }}"
+          gh release create "$TAG" OtomoreMeter.ipa modelcheck.txt \
+            --title "音漏れメーター ビルド${{ github.run_number }}" \
+            --notes "iPhoneのSafariでOtomoreMeter.ipaを開いてダウンロードし、SideStoreの「My Apps」→「＋」から選んでインストールします。" \
+            --latest

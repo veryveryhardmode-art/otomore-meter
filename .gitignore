@@ -1,0 +1,8 @@
+/build/
+/Payload/
+*.ipa
+*.xcodeproj/
+/modelcheck
+/modelcheck.txt
+/build.log
+.DS_Store

@@ -1,0 +1,38 @@
+name: OtomoreMeter
+options:
+  bundleIdPrefix: com.hironobu
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+targets:
+  OtomoreMeter:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: OtomoreMeter
+    info:
+      path: Support/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: ja
+        CFBundleDisplayName: 音漏れメーター
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSMicrophoneUsageDescription: イヤホンからの音漏れと周りの音を測るためにマイクを使います。録音した音は保存も送信もしません。
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_NAME: OtomoreMeter
+        PRODUCT_BUNDLE_IDENTIFIER: com.hironobu.otomoremeter
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: ""
