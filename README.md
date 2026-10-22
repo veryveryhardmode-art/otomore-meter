@@ -14,6 +14,8 @@
 
 最新版はいつでも `releases/latest/download/OtomoreMeter.ipa` から落とせます。
 
+ヘルスケアの「ヘッドフォン音量」も読みたいときは、代わりに `OtomoreMeter-health.ipa` を入れてみてください。ヘルスケアの許可を付けた版です。無料のApple IDでは入らないことがあるので、そのときは通常版を使ってください（ヘルスケアの欄以外は同じです）。
+
 ## ビルド
 
 `main` に push すると GitHub Actions が署名なしの IPA を作り、Release に置きます（Macは不要）。

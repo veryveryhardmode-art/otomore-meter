@@ -15,12 +15,13 @@ func s1(_ v: Double) -> String {
 func show(_ title: String, type: EarType, fit: Fit, vol: Double, loud: Loudness) {
     let leak = Model.estimatedLeak(type: type, fit: fit, volumePct: vol, loudness: loud)
     print("■ \(title)  入力: type=\(type.rawValue) fit=\(fit.rawValue) vol=\(Int(vol))% loudness=\(loud.rawValue)  耳に届く音=\(f1(Model.earLevel(volumePct: vol, loudness: loud)))dBA")
-    print("  漏れ(10cm, 125〜8k): " + leak.map { f1($0) }.joined(separator: " / "))
+    print("  漏れ(10cm, 125〜16k): " + leak.map { f1($0) }.joined(separator: " / "))
     for p in Model.places {
         let ev = Model.evaluate(leak: leak, place: p)
         let safe = Model.safeVolumePct(current: vol, worstMargin: ev.worstMargin)
         let band = ev.worstBand >= 0 ? Model.bandLabels[ev.worstBand] : "-"
-        print("  \(p.name) 差\(s1(ev.worstMargin))dB(\(band)) → \(Model.levelNames[ev.level]) / セーフ上限 \(Int(safe))%（\(Model.steps(fromPct: safe))/16）")
+        let ear = Model.safeEarDb(currentEar: Model.earLevel(volumePct: vol, loudness: loud), worstMargin: ev.worstMargin)
+        print("  \(p.name) 差\(s1(ev.worstMargin))dB(\(band)) → \(Model.levelNames[ev.level]) / セーフ上限 \(Int(safe))%（\(Model.steps(fromPct: safe))/16）/ 耳で\(ear >= Model.maxEar ? "何dBでもOK" : "約" + f1(ear) + "dBまで")")
     }
 }
 
@@ -40,16 +41,16 @@ let musicAdj = Model.musicDbfs - Model.testToneDbfs
 func powerOf(_ db: Double) -> Double { pow(10, (db - K) / 10) }
 var ambP: [Double] = []
 var toneP: [Double] = []
-for i in 0..<7 {
+for i in 0..<Model.bandFreqs.count {
     let leakAtMic = (trueLeak[i] ?? 0) - distAdj - musicAdj
     ambP.append(powerOf(amb[i]))
     toneP.append(powerOf(amb[i]) + powerOf(leakAtMic))
 }
 print("入力: 周りの音=静かな部屋40dB, 真の漏れ=インナーイヤー70%相当, マイク距離\(Int(Model.micDistance * 100))cm, 感度K=\(Int(K))")
 do {
-    let r = try Model.computeMeasurement(ambient: ambP, tone: toneP, valid: Array(repeating: true, count: 7),
+    let r = try Model.computeMeasurement(ambient: ambP, tone: toneP, valid: Array(repeating: true, count: Model.bandFreqs.count),
                                          volume: 0.7, calibration: K, routeName: "test")
-    for i in 1..<7 {
+    for i in 1..<Model.bandFreqs.count {
         print("  \(Model.bandLabels[i])Hz: 真の漏れ\(f1(trueLeak[i])) → 計算\(f1(r.leak10[i]))  周りの音 真\(f1(amb[i])) → 計算\(f1(r.ambientDb[i]))  検出=\(r.detected[i])")
     }
     print("  測った場所の周りの音(A特性): \(f1(r.ambientA))dB")
@@ -75,7 +76,7 @@ let an = BandAnalyzer(sampleRate: fs)
 samples.withUnsafeBufferPointer { an.process($0.baseAddress!, count: $0.count, accumulate: false) }
 samples.withUnsafeBufferPointer { an.process($0.baseAddress!, count: $0.count, accumulate: true) }
 let bands = an.meanPowers().map { 10 * log10($0) }
-for i in 0..<7 {
+for i in 0..<Model.bandFreqs.count {
     print("  \(Model.bandLabels[i])Hz: 分析 \(s1(bands[i] - bands[0]))dB / 設計 \(s1(Model.music[i] - Model.music[0]))dB")
 }
 
@@ -87,4 +88,21 @@ let names = ["宏伸のAirPods Pro", "AirPods", "AirPods Max", "AirPods 4", "Ear
              "ambie sound earcuffs", "Headphones", "ヘッドフォン"]
 for n in names {
     print("  \(n) → \(EarphoneCatalog.guess(name: n)?.name ?? "判定できず（手動で選ぶ）")")
+}
+
+print("")
+print("=== 5. ヘルスケアのヘッドフォン音量のまとめ ===")
+let exposureCases: [(String, [(db: Double, dur: Double)])] = [
+    ("同じ音量だけ", [(db: 70, dur: 3600)]),
+    ("ふだん65dBで1時間、たまに85dBで10分", [(db: 65, dur: 3600), (db: 85, dur: 600)]),
+    ("UIテストと同じ", [(db: 62, dur: 3600), (db: 68, dur: 5400), (db: 74, dur: 1800), (db: 82, dur: 600)]),
+    ("記録なし", [])
+]
+for (name, vals) in exposureCases {
+    let input = vals.map { "\(Int($0.db))dB×\(Int($0.dur))秒" }.joined(separator: ", ")
+    if let s = Model.exposureStats(vals) {
+        print("  \(name)  入力: [\(input)] → 平均(Leq) \(f1(s.average))dB / 上位10% \(f1(s.p90))dB / 最大 \(f1(s.maximum))dB / \(String(format: "%.2f", s.hours))時間")
+    } else {
+        print("  \(name)  入力: [\(input)] → 記録なし")
+    }
 }

@@ -16,6 +16,7 @@ final class OtomoreMeterUITests: XCTestCase {
             "OTOMORE_MOCK_ROUTE_KIND": "bluetooth",
             "OTOMORE_MOCK_MIC": "1",
             "OTOMORE_MOCK_SCENE": "room",
+            "OTOMORE_MOCK_HEALTH": "62:3600,68:5400,74:1800,82:600",
             "OTOMORE_RESET": reset ? "1" : "0"
         ]
         app.launch()
@@ -54,13 +55,24 @@ final class OtomoreMeterUITests: XCTestCase {
         XCTAssertTrue(any(app, "イヤホンの名前から自動で判定しました").exists)
         shot(app, "01_メイン画面")
 
-        // 2. 判定と場面の物差し
-        app.swipeUp()
+        // 2. 判定（新幹線は停車中が基準、耳で何dBまで）と場面の物差し
+        let head = any(app, "新幹線で使うなら（停車中が基準）")
+        scrollTo(app, head)
+        XCTAssertTrue(head.exists, "停車中基準の見出しがない")
+        XCTAssertTrue(any(app, "耳で").exists, "耳で何dBまでの表示がない")
         shot(app, "02_判定")
         let shinRow = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "新幹線（走行中）")).firstMatch
         scrollTo(app, shinRow)
         shot(app, "03_場面の物差し")
         XCTAssertTrue(shinRow.exists, "新幹線（走行中）の行がない")
+
+        // 2b. ヘルスケアのまとめ（テスト用の記録）
+        let healthHead = any(app, "ふだん聴いている音の大きさ（ヘルスケア）")
+        scrollTo(app, healthHead)
+        XCTAssertTrue(healthHead.exists, "ヘルスケアの欄がない")
+        XCTAssertTrue(any(app, "ふだんの音（平均）").exists, "ヘルスケアの平均が出ない")
+        shot(app, "03b_ヘルスケア")
+        scrollTo(app, shinRow, up: false)
 
         // 3. 内訳（帯域ごとのグラフ）
         shinRow.tap()

@@ -33,12 +33,12 @@ enum EarType: String, CaseIterable, Identifiable, Codable {
     /// 公開されている聞き比べ（静かな部屋で20cm・1m・真横）に合うよう、全種類を24dB下げてある
     var loss: [Double] {
         switch self {
-        case .canal: return [-82, -78, -74, -70, -66, -64, -66]
-        case .inner: return [-60, -56, -52, -48, -44, -42, -44]
-        case .open: return [-50, -47, -43, -39, -36, -35, -37]
-        case .bone: return [-64, -56, -48, -43, -40, -40, -44]
-        case .hpclosed: return [-66, -62, -58, -56, -54, -54, -56]
-        case .hpopen: return [-44, -42, -39, -37, -35, -34, -36]
+        case .canal: return [-82, -78, -74, -70, -66, -64, -66, -66]
+        case .inner: return [-60, -56, -52, -48, -44, -42, -44, -44]
+        case .open: return [-50, -47, -43, -39, -36, -35, -37, -37]
+        case .bone: return [-64, -56, -48, -43, -40, -40, -44, -44]
+        case .hpclosed: return [-66, -62, -58, -56, -54, -54, -56, -56]
+        case .hpopen: return [-44, -42, -39, -37, -35, -34, -36, -36]
         }
     }
 
@@ -60,9 +60,9 @@ enum Fit: String, CaseIterable, Identifiable, Codable {
 
     var offsets: [Double] {
         switch self {
-        case .tight: return [0, 0, 0, 0, 0, 0, 0]
-        case .normal: return [5, 4, 4, 3, 3, 3, 3]
-        case .loose: return [14, 12, 10, 9, 8, 8, 8]
+        case .tight: return [0, 0, 0, 0, 0, 0, 0, 0]
+        case .normal: return [5, 4, 4, 3, 3, 3, 3, 3]
+        case .loose: return [14, 12, 10, 9, 8, 8, 8, 8]
         }
     }
 }
@@ -154,19 +154,19 @@ enum MeasureError: LocalizedError {
 // MARK: - 計算モデル
 
 enum Model {
-    static let bandLabels = ["125", "250", "500", "1k", "2k", "4k", "8k"]
-    static let bandFreqs: [Double] = [125, 250, 500, 1000, 2000, 4000, 8000]
+    static let bandLabels = ["125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
+    static let bandFreqs: [Double] = [125, 250, 500, 1000, 2000, 4000, 8000, 16000]
     /// A特性（オクターブ中心）
-    static let aWeight: [Double] = [-16.1, -8.6, -3.2, 0, 1.2, 1.0, -1.1]
-    /// 最小可聴値の目安（dB SPL）
-    static let hearing: [Double] = [22, 11, 4, 2, -1, -5, 13]
+    static let aWeight: [Double] = [-16.1, -8.6, -3.2, 0, 1.2, 1.0, -1.1, -6.6]
+    /// 最小可聴値の目安（dB SPL）。16kHz帯は若い人の目安
+    static let hearing: [Double] = [22, 11, 4, 2, -1, -5, 13, 25]
     /// 一般的な音楽の帯域バランス
-    static let music: [Double] = [0, 0, -2, -5, -8, -12, -17]
+    static let music: [Double] = [0, 0, -2, -5, -8, -12, -17, -26]
 
-    static let shapeQuiet: [Double] = [0, -3, -7, -11, -16, -22, -30]
-    static let shapeOffice: [Double] = [-2, -2, -3, -6, -10, -16, -24]
-    static let shapeBabble: [Double] = [-10, -5, 0, -2, -7, -13, -21]
-    static let shapeTrain: [Double] = [0, -1, -4, -9, -15, -21, -29]
+    static let shapeQuiet: [Double] = [0, -3, -7, -11, -16, -22, -30, -38]
+    static let shapeOffice: [Double] = [-2, -2, -3, -6, -10, -16, -24, -32]
+    static let shapeBabble: [Double] = [-10, -5, 0, -2, -7, -13, -21, -30]
+    static let shapeTrain: [Double] = [0, -1, -4, -9, -15, -21, -29, -38]
 
     /// 最大音量のときに耳に届く音（dBA）
     static let maxEar = 100.0
@@ -347,6 +347,31 @@ enum Model {
         let vb = volDb(current)
         guard vb.isFinite, worstMargin.isFinite else { return 100 }
         return volPct(vb + (-6 - worstMargin))
+    }
+
+    /// その場面で「ほぼ気づかれない」に収まる、耳に届く音の大きさ（dBA）。音量カーブの仮定によらない
+    static func safeEarDb(currentEar: Double, worstMargin: Double) -> Double {
+        guard currentEar.isFinite, worstMargin.isFinite else { return Double.infinity }
+        return currentEar + (-6 - worstMargin)
+    }
+
+    /// ヘルスケアのヘッドフォン音量（dB, 秒）のまとめ：時間で重みをつけた平均（Leq）、時間で上位10%の値、最大、合計時間
+    static func exposureStats(_ vals: [(db: Double, dur: Double)]) -> (average: Double, p90: Double, maximum: Double, hours: Double)? {
+        let v = vals.filter { $0.db.isFinite && $0.dur > 0 }
+        guard !v.isEmpty else { return nil }
+        let total = v.reduce(0.0) { $0 + $1.dur }
+        let energy = v.reduce(0.0) { $0 + $1.dur * pow(10, $1.db / 10) }
+        let sorted = v.sorted { $0.db < $1.db }
+        var acc = 0.0
+        var p90 = sorted.last!.db
+        for x in sorted {
+            acc += x.dur
+            if acc >= 0.9 * total - 1e-9 {
+                p90 = x.db
+                break
+            }
+        }
+        return (10 * log10(energy / total), p90, sorted.last!.db, total / 3600)
     }
 
     /// 音量（%）→ iPhoneの音量ボタンの段階（0〜16）

@@ -10,6 +10,7 @@ let chunk = 4096
 let K = 120.0                 // マイク感度（合成とアプリで同じ値＝感度は正しく合っている前提）
 let micNoiseDb = 32.0         // iPhoneマイク自身の雑音（dB SPL、全帯域）
 let musicAdj = Model.musicDbfs - Model.testToneDbfs
+let NB = Model.bandFreqs.count
 
 func f1(_ v: Double?) -> String {
     guard let v = v, v.isFinite else { return "  —  " }
@@ -64,11 +65,11 @@ struct Outcome {
 func run(_ t: Trial) -> Outcome {
     var rng = SplitMix64(seed: t.seed &* 7919)
     let volPct = Double(t.step) * 6.25
-    var trueLeak10: [Double?] = Array(repeating: nil, count: 7)
-    var leakAtMic = [Double](repeating: -Double.infinity, count: 7)
+    var trueLeak10: [Double?] = Array(repeating: nil, count: NB)
+    var leakAtMic = [Double](repeating: -Double.infinity, count: NB)
     if let ty = t.type {
         let est = Model.estimatedLeak(type: ty, fit: .normal, volumePct: volPct, loudness: .normal)
-        for b in 0..<7 {
+        for b in 0..<NB {
             let v = (est[b] ?? -Double.infinity) + t.dev[b]
             trueLeak10[b] = v
             leakAtMic[b] = v - musicAdj + 20 * log10(0.1 / t.micDist)
@@ -125,7 +126,7 @@ for env in envs {
             for _ in 0..<2 {
                 seed += 1
                 let dist = 0.02 + trng.uniform() * 0.03
-                let dev = (0..<7).map { _ in (trng.uniform() * 2 - 1) * 3 }
+                let dev = (0..<NB).map { _ in (trng.uniform() * 2 - 1) * 3 }
                 trials.append(Trial(env: env, type: ty, step: st, micDist: dist, dev: dev, burst: nil, seed: seed))
             }
         }
@@ -136,7 +137,7 @@ var noLeak: [Trial] = []
 for env in envs {
     for _ in 0..<4 {
         seed += 1
-        noLeak.append(Trial(env: env, type: nil, step: 10, micDist: 0.03, dev: Array(repeating: 0, count: 7), burst: nil, seed: seed))
+        noLeak.append(Trial(env: env, type: nil, step: 10, micDist: 0.03, dev: Array(repeating: 0, count: NB), burst: nil, seed: seed))
     }
 }
 var bursts: [Trial] = []
@@ -144,7 +145,7 @@ for env in [envs[1], envs[2]] {
     for inTone in [true, false] {
         for _ in 0..<5 {
             seed += 1
-            bursts.append(Trial(env: env, type: .inner, step: 8, micDist: 0.03, dev: Array(repeating: 0, count: 7),
+            bursts.append(Trial(env: env, type: .inner, step: 8, micDist: 0.03, dev: Array(repeating: 0, count: NB),
                                 burst: (inTone: inTone, gainDb: 10), seed: seed))
         }
     }
@@ -163,7 +164,7 @@ for idx in [0, 7 * 8 + 3, mainCount - 5] where idx < outs.count {
     let o = outs[idx]
     let t = o.trial
     print("■ 場所=\(t.env.name) 種類=\(t.type?.name ?? "なし") 音量=\(t.step)/16 マイク距離=\(String(format: "%.1f", t.micDist * 100))cm")
-    print("  帯域         :   125   250   500    1k    2k    4k    8k")
+    print("  帯域         :   125   250   500    1k    2k    4k    8k   16k")
     print("  周りの音(真) : " + o.trueAmb.map { f1($0) }.joined(separator: " "))
     print("  周りの音(測) : " + o.result.ambientDb.map { f1($0) }.joined(separator: " "))
     print("  マイク位置の漏れ(真): " + o.leakAtMic.map { f1($0) }.joined(separator: " "))
@@ -190,7 +191,7 @@ func stats(_ xs: [Double]) -> String {
 func errors(_ os: [Outcome]) -> [Double] {
     var e: [Double] = []
     for o in os {
-        for b in 1..<7 where o.result.detected[b] {
+        for b in 1..<NB where o.result.detected[b] {
             if let m = o.result.leak10[b], let tv = o.trueLeak10[b] { e.append(m - tv) }
         }
     }
@@ -210,7 +211,7 @@ let buckets: [(String, Double, Double)] = [("−10dB未満", -100, -10), ("−10
 for (name, lo, hi) in buckets {
     var n = 0, d = 0
     for o in outs {
-        for b in 1..<7 {
+        for b in 1..<NB {
             let snr = o.leakAtMic[b] - o.trueAmb[b]
             if snr >= lo && snr < hi { n += 1; if o.result.detected[b] { d += 1 } }
         }

@@ -83,6 +83,7 @@ struct PlaceRow: View {
     let place: Place
     let eval: PlaceEval
     let safe: String
+    let ear: String
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -97,6 +98,10 @@ struct PlaceRow: View {
             VStack(alignment: .trailing, spacing: 3) {
                 LevelPill(level: eval.level)
                 Text(safe)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .monospacedDigit()
+                Text(ear)
                     .font(.caption2)
                     .foregroundColor(.secondary)
                     .monospacedDigit()
@@ -314,7 +319,7 @@ struct MeasureSheet: View {
                     }
                 }
                 if let m = latest {
-                    Text("6帯域のうち \(m.detectedCount) 帯域で音漏れを検出しました。閉じると、場面ごとの判定が実測をもとにした値に切り替わります。")
+                    Text("\(Model.bandFreqs.count - 1)帯域のうち \(m.detectedCount) 帯域で音漏れを検出しました。閉じると、場面ごとの判定が実測をもとにした値に切り替わります。")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
@@ -355,6 +360,10 @@ struct AboutView: View {
         ("実測", "iPhoneの下のマイクを耳の約3cm横に当て、周りの音とテスト音を測ります。2つの差から、イヤホンから漏れた音だけを取り出します。テスト音は一般的な曲と同じ帯域バランスで、ふつうの曲より3dB小さく流しています。AirPodsは高音質のまま鳴らし、マイクはiPhone本体のものを使います。"),
         ("隣の人までの距離", "耳から10cmの漏れ音をもとに、距離が2倍で約6dB下がる計算に、車内や室内の反響ぶんを少し加えています。"),
         ("判定", "帯域ごとに、隣の人の耳に届く漏れ音と周りの騒音を比べ、いちばん目立つ帯域で判定します。騒音より12dB以上小さければ聞こえない、6dB以上小さければほぼ気づかれない、騒音を超えると気になる、8dB以上超えて歌やメロディの帯域（500Hz〜2kHz）も聞こえていれば曲までわかる、としています。"),
+        ("新幹線", "駅に止まった瞬間に周りが静かになるので、新幹線は停車中（周りの音50dB）を基準に判定します。停車中の車内の音は、公開データが見つからなかったので仮の値です。"),
+        ("耳で何dBまで", "その場面で「ほぼ気づかれない」に収まる、耳に届く音の大きさです。音量の段階からの換算には頼らない値なので、コントロールセンターの「聴覚」に出る値とそのまま見比べられます。"),
+        ("ヘルスケア", "iPhoneが記録している「ヘッドフォン音量」を読み、ふだん聴いている音の大きさと新幹線の停車中の上限を比べます。AirPodsやBeatsはiPhoneが測った値です。"),
+        ("帯域", "125Hz〜16kHzの8帯域で計算します。16kHz帯（11〜22kHz）はハイハットなどのシャカシャカ音の上のほうで、聞こえ始める大きさは若い人の目安25dBとしています。"),
         ("場面の騒音", "新幹線・バスの車内の約70dB、書店の約50dB、図書館の約40dBは名古屋市「騒音の目安」をもとにしています。ほかは目安値です。"),
         ("精度", "誤差は±5dB程度です。マイクの感度は機種共通の目安値を使っています。「測った場所での判定」は漏れた音と周りの音を同じマイクで比べるので、感度のずれの影響を受けません。場面の物差しの精度を上げたいときは、校正済みの騒音計アプリで同じ場所を測り、「測ったときの周りの音」との差をマイクの補正に入れてください。")
     ]

@@ -38,7 +38,7 @@ final class BandAnalyzer {
         var st: [[Biquad]] = []
         var ok: [Bool] = []
         for fc in Model.bandFreqs {
-            let usable = fc * 1.5 < fs / 2
+            let usable = fc * 1.35 < fs / 2
             let center = usable ? fc : fs / 4
             let bq = Biquad.bandpass(center: center, q: 1.414, sampleRate: fs)
             st.append([bq, bq])
@@ -100,7 +100,8 @@ enum ToneGenerator {
         let x = log2(f / 125)
         let m = Model.music
         if x <= 0 { return m[0] }
-        if x >= 6 { return m[6] - (x - 6) * 6 }
+        let top = Double(m.count - 1)
+        if x >= top { return m[m.count - 1] - (x - top) * 6 }
         let i = Int(x.rounded(.down))
         let t = x - Double(i)
         return m[i] + (m[i + 1] - m[i]) * t
@@ -114,7 +115,7 @@ enum ToneGenerator {
         var freqs: [Double] = []
         let toneCount = 400
         let fLow = 63.0
-        let fHigh = 14000.0
+        let fHigh = 18000.0
         var lastK = -1
         for i in 0..<toneCount {
             let f = fLow * pow(fHigh / fLow, Double(i) / Double(toneCount - 1))

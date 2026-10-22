@@ -21,6 +21,7 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSMicrophoneUsageDescription: イヤホンからの音漏れと周りの音を測るためにマイクを使います。録音した音は保存も送信もしません。
+        NSHealthShareUsageDescription: ヘルスケアの「ヘッドフォン音量」を読んで、ふだん聴いている音の大きさと音漏れの上限を比べるために使います。
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -29,7 +30,7 @@ targets:
       base:
         PRODUCT_NAME: OtomoreMeter
         PRODUCT_BUNDLE_IDENTIFIER: com.hironobu.otomoremeter
-        MARKETING_VERSION: "1.1.0"
+        MARKETING_VERSION: "1.2.0"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

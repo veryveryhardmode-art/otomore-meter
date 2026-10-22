@@ -33,7 +33,7 @@ final class BandSignalBank {
         let df = 1 / seconds
         var perBand: [[Double]] = Array(repeating: [], count: Model.bandFreqs.count)
         let fLow = 63.0
-        let fHigh = 15000.0
+        let fHigh = 18000.0
         var lastK = -1
         for i in 0..<toneCount {
             let f = fLow * pow(fHigh / fLow, Double(i) / Double(toneCount - 1))

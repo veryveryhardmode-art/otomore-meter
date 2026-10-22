@@ -73,13 +73,19 @@ jobs:
           mkdir Payload
           cp -R "$APP" Payload/
           zip -qry OtomoreMeter.ipa Payload
-          ls -la OtomoreMeter.ipa
+          # ヘルスケアの許可つき版（仮の署名で権限だけ書き込む。SideStoreが入れ直すときに使う）
+          cp -R Payload HealthPayload
+          codesign --force --sign - --entitlements Support/OtomoreMeter-health.entitlements HealthPayload/OtomoreMeter.app
+          codesign -d --entitlements - HealthPayload/OtomoreMeter.app
+          (mkdir -p h && rm -rf h/Payload && mv HealthPayload h/Payload && cd h && zip -qry ../OtomoreMeter-health.ipa Payload)
+          ls -la OtomoreMeter.ipa OtomoreMeter-health.ipa
 
       - uses: actions/upload-artifact@v4
         with:
           name: OtomoreMeter-ipa
           path: |
             OtomoreMeter.ipa
+            OtomoreMeter-health.ipa
             modelcheck.txt
 
       - name: Publish release
@@ -88,7 +94,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="build-${{ github.run_number }}"
-          gh release create "$TAG" OtomoreMeter.ipa modelcheck.txt \
+          gh release create "$TAG" OtomoreMeter.ipa OtomoreMeter-health.ipa modelcheck.txt \
             --title "音漏れメーター ビルド${{ github.run_number }}" \
-            --notes "iPhoneのSafariでOtomoreMeter.ipaを開いてダウンロードし、SideStoreの「My Apps」→「＋」から選んでインストールします。" \
+            --notes "iPhoneのSafariでOtomoreMeter.ipaを開いてダウンロードし、SideStoreの「My Apps」→「＋」から選んでインストールします。ヘルスケアを使う場合はOtomoreMeter-health.ipaを試してください（無料のApple IDで入らないときは通常版を使ってください）。" \
             --latest

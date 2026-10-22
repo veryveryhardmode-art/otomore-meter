@@ -4,6 +4,7 @@ struct ContentView: View {
     @ObservedObject var monitor: AudioMonitor
     @ObservedObject var measurer: Measurer
     @ObservedObject var prefs: UserPrefs
+    @ObservedObject var health: HealthLevels
     @State private var showMeasure = false
 
     // MARK: - 計算に使う値
@@ -59,6 +60,20 @@ struct ContentView: View {
         return "\(s) / 16 までOK"
     }
 
+    /// その場面で「ほぼ気づかれない」に収まる、耳に届く音の大きさ
+    private func earLimit(_ ev: PlaceEval) -> Double? {
+        if isMuted { return nil }
+        let cur = Model.earLevel(volumePct: volumePct, loudness: prefs.loudness)
+        return Model.safeEarDb(currentEar: cur, worstMargin: ev.worstMargin)
+    }
+
+    private func earLimitText(_ ev: PlaceEval) -> String {
+        guard let e = earLimit(ev) else { return "耳の音：—" }
+        if !e.isFinite || e >= Model.maxEar { return "耳で何dBでもOK" }
+        let v = Int(e.rounded())
+        return ev.uncertain ? "耳で少なくとも約\(v)dBまで" : "耳で約\(v)dBまで"
+    }
+
     private func placeIndex(_ id: String) -> Int {
         Model.places.firstIndex(where: { $0.id == id }) ?? 0
     }
@@ -76,6 +91,7 @@ struct ContentView: View {
                     hereSection(m)
                 }
                 ladderSection
+                healthSection
                 detailSection
             }
             .navigationTitle("音漏れメーター")
@@ -222,9 +238,31 @@ struct ContentView: View {
         let minSafe = safePairs.map { $0.0 }.min()
         let minUncertain = safePairs.contains { $0.0 == minSafe && $0.1 }
         return Section {
-            HStack(alignment: .top, spacing: 12) {
-                summaryCell(title: "新幹線・隣の席（走行中）", ev: run)
-                summaryCell(title: "停車した瞬間", ev: stop)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("新幹線で使うなら（停車中が基準）")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+                HStack(alignment: .center, spacing: 10) {
+                    LevelPill(level: stop.level)
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(safeLabel(safeSteps(stop), uncertain: stop.uncertain))
+                            .font(.subheadline.weight(.semibold))
+                            .monospacedDigit()
+                        Text(earLimitText(stop))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(Palette.accent)
+                            .monospacedDigit()
+                    }
+                }
+                Text(stop.uncertain && stop.level > 0 ? "測りきれなかったので、これ以下です。" : Model.levelDescs[stop.level])
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("走行中は「\(Model.levelNames[run.level])」ですが、駅に止まった瞬間に周りが静かになるので、停車中を基準にしています。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.vertical, 4)
             LabeledRow(label: "気づかれやすい場面", value: noticed.isEmpty ? "なし" : noticed.joined(separator: "、"))
@@ -234,22 +272,10 @@ struct ContentView: View {
         } footer: {
             if !monitor.routeKind.isHeadphones {
                 Text("イヤホンをつなぐと、そのイヤホンで判定します。")
+            } else {
+                Text("耳に届いている音は、コントロールセンターの「聴覚」（耳のアイコン）で、聴きながらdBで確かめられます。AirPodsやBeatsはiPhoneが測った値です。")
             }
         }
-    }
-
-    private func summaryCell(title: String, ev: PlaceEval) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundColor(.secondary)
-            LevelPill(level: ev.level)
-            Text(ev.uncertain && ev.level > 0 ? "測りきれなかったので、これ以下です。" : Model.levelDescs[ev.level])
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var measureSection: some View {
@@ -282,7 +308,7 @@ struct ContentView: View {
         f.locale = Locale(identifier: "ja_JP")
         f.dateFormat = "M/d H:mm"
         let st = Int((m.volume * 16).rounded())
-        var s = "\(f.string(from: m.date)) に音量 \(st)/16 で測定。6帯域のうち \(m.detectedCount) 帯域で音漏れを検出。"
+        var s = "\(f.string(from: m.date)) に音量 \(st)/16 で測定。\(Model.bandFreqs.count - 1)帯域のうち \(m.detectedCount) 帯域で音漏れを検出。"
         if m.detectedCount == 0 {
             s += "テスト音が周りの音に埋もれたので、漏れは「これ以下」という上限で判定しています。"
         }
@@ -316,6 +342,9 @@ struct ContentView: View {
                         Text(safeLabel(safeSteps(ev), uncertain: ev.uncertain))
                             .font(.caption2)
                             .foregroundColor(.secondary)
+                        Text(earLimitText(ev))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
                 }
             }
@@ -337,14 +366,68 @@ struct ContentView: View {
                         eval: ev
                     )
                 } label: {
-                    PlaceRow(place: place, eval: ev, safe: safeLabel(safeSteps(ev), uncertain: ev.uncertain))
+                    PlaceRow(place: place, eval: ev, safe: safeLabel(safeSteps(ev), uncertain: ev.uncertain), ear: earLimitText(ev))
                 }
             }
         } header: {
             Text("場面の物差し")
         } footer: {
-            Text("上ほど静かで、音漏れに厳しい場面です。右下は、その場面で気づかれない音量の上限です。")
+            Text("上ほど静かで、音漏れに厳しい場面です。右下は、その場面で気づかれない音量の上限と、そのときの耳に届く音の大きさです。")
         }
+    }
+
+    private var healthSection: some View {
+        let stop = eval(Model.places[placeIndex("shinStop")])
+        let limit = earLimit(stop)
+        return Section {
+            switch health.state {
+            case .idle:
+                Button("ヘルスケアから読み込む") { health.load() }
+            case .loading:
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("読み込んでいます…")
+                }
+            case .unavailable(let msg):
+                Text(msg)
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                Button("もう一度試す") { health.load() }
+            case .loaded:
+                if health.sampleCount == 0 {
+                    Text("直近30日のヘッドフォン音量の記録がありませんでした。AirPodsで音楽を聴くと、iPhoneが自動で記録します。")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                } else {
+                    LabeledRow(label: "ふだんの音（平均）", value: "約\(Int(health.average.rounded()))dB")
+                    LabeledRow(label: "大きいとき（上位10%）", value: "約\(Int(health.p90.rounded()))dB")
+                    LabeledRow(label: "いちばん大きいとき", value: "約\(Int(health.maximum.rounded()))dB")
+                    LabeledRow(label: "記録の量", value: String(format: "%.1f時間・%d件", health.totalHours, health.sampleCount))
+                    Text(healthVerdict(limit: limit))
+                        .font(.subheadline)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Button("読み込み直す") { health.load() }
+            }
+        } header: {
+            Text("ふだん聴いている音の大きさ（ヘルスケア）")
+        } footer: {
+            Text("iPhoneが記録している「ヘッドフォン音量」の直近30日分です。AirPodsやBeatsはiPhoneが測った値、ほかのイヤホンは音量からの推定です。")
+        }
+    }
+
+    private func healthVerdict(limit: Double?) -> String {
+        guard let l = limit, l.isFinite else {
+            return "いまのイヤホンでは、新幹線の停車中に気になる音量の上限はありません。"
+        }
+        let lv = Int(l.rounded())
+        if health.p90 <= l {
+            return "大きいときでも、新幹線の停車中の上限（耳で約\(lv)dB）以内です。"
+        }
+        if health.average <= l {
+            return "ふだんは大丈夫ですが、大きいときは新幹線の停車中の上限（耳で約\(lv)dB）を超えています。"
+        }
+        return "ふだんの音で、新幹線の停車中の上限（耳で約\(lv)dB）を超えています。"
     }
 
     private var detailSection: some View {

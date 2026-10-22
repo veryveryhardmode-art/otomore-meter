@@ -125,6 +125,9 @@ th{font-weight:700;color:var(--muted);font-size:11.5px}
 .empty{background:var(--surface);border:1px dashed var(--line);border-radius:14px;padding:22px 18px;color:var(--muted);font-size:14px}
 .summary{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;gap:14px}
 .sum-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.sum-head{display:grid;gap:8px}
+.sum-main{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.sum-limit{font-weight:700;font-size:14px;font-variant-numeric:tabular-nums}
 .sum-cell{display:grid;gap:6px;align-content:start;min-width:0}
 .sum-k{font-size:12.5px;color:var(--muted);font-weight:700}
 .sum-d{font-size:12.5px;color:var(--muted);line-height:1.55}
@@ -315,6 +318,9 @@ th{font-weight:700;color:var(--muted);font-size:11.5px}
           <li>10cmから隣の人の耳までは、距離が2倍で約6dB下がる計算に、車内や室内の反響ぶんを少し加えています。</li>
           <li>帯域ごとに「隣の人の耳に届く漏れ音」と「周りの騒音」を比べ、いちばん目立つ帯域で判定します。騒音より12dB以上小さければ聞こえない、6dB以上小さければほぼ気づかれない、騒音を超えると気になる、8dB以上超えて歌やメロディの帯域（500Hz〜2kHz）も聞こえていれば曲までわかる、としています。</li>
           <li>場面の騒音のうち、新幹線・バスの車内の約70dB、書店の約50dB、図書館の約40dBは<a href="https://www.city.nagoya.jp/kankyo/cmsfiles/contents/0000068/68418/dayori35.pdf" target="_blank" rel="noopener">名古屋市「騒音の目安」</a>をもとにしています。ほかは目安値です。</li>
+          <li>帯域は125Hz〜16kHzの8つです。16kHz帯（11〜22kHz）はハイハットなどのシャカシャカ音の上のほうで、聞こえ始める大きさは若い人の目安25dBとしています。</li>
+          <li>「耳で約◯dBまで」は、その場面で「ほぼ気づかれない」に収まる、耳に届く音の大きさです。iPhoneのコントロールセンターの「聴覚」に出る値と見比べられます（AirPodsやBeatsはiPhoneが測った値、ほかのイヤホンは音量からの推定です）。</li>
+          <li>新幹線は、駅に止まった瞬間に周りが静かになるので、停車中（周りの音50dBの仮の値）を基準にしています。</li>
           <li>実測モードは、周りの音でマイクの感度を合わせ、マイクの位置を変えた2回の差から電気的な回り込みを取り除いて、耳から10cmの漏れ音を求めます。</li>
           <li>どちらのモードも誤差は±5dB程度です。判定は目安として使ってください。</li>
         </ul>
@@ -325,29 +331,29 @@ th{font-weight:700;color:var(--muted);font-size:11.5px}
 
 <script>
 /*MODEL_START*/
-const BANDS=[125,250,500,1000,2000,4000,8000];
-const BL=['125','250','500','1k','2k','4k','8k'];
-const AW=[-16.1,-8.6,-3.2,0,1.2,1.0,-1.1];          // A特性（オクターブ中心）
-const HEAR=[22,11,4,2,-1,-5,13];                   // 最小可聴値の目安 dB SPL
-const MUSIC=[0,0,-2,-5,-8,-12,-17];                // 一般的な音楽の帯域バランス
+const BANDS=[125,250,500,1000,2000,4000,8000,16000];
+const BL=['125','250','500','1k','2k','4k','8k','16k'];
+const AW=[-16.1,-8.6,-3.2,0,1.2,1.0,-1.1,-6.6];          // A特性（オクターブ中心）
+const HEAR=[22,11,4,2,-1,-5,13,25];                   // 最小可聴値の目安 dB SPL
+const MUSIC=[0,0,-2,-5,-8,-12,-17,-26];                // 一般的な音楽の帯域バランス
 const SHAPES={
-  quiet:[0,-3,-7,-11,-16,-22,-30],   // 空調音中心の静かな室内
-  office:[-2,-2,-3,-6,-10,-16,-24],
-  babble:[-10,-5,0,-2,-7,-13,-21],   // 話し声・食器音
-  train:[0,-1,-4,-9,-15,-21,-29]     // 乗り物（低音中心）
+  quiet:[0,-3,-7,-11,-16,-22,-30,-38],   // 空調音中心の静かな室内
+  office:[-2,-2,-3,-6,-10,-16,-24,-32],
+  babble:[-10,-5,0,-2,-7,-13,-21,-30],   // 話し声・食器音
+  train:[0,-1,-4,-9,-15,-21,-29,-38]     // 乗り物（低音中心）
 };
 const MAX_EAR=100;          // 最大音量時に耳に届く音 dBA
 const REVERB_DB=-26;        // 反響ぶん（10cm地点比）
 const TEST_DBFS=-15;        // テスト音のRMS
 const TYPES=[
-  {id:'canal',name:'カナル型',desc:'耳の穴にゴムを差し込む。AirPods Pro など',loss:[-82,-78,-74,-70,-66,-64,-66],fit:true},
-  {id:'inner',name:'インナーイヤー型',desc:'耳に乗せるだけ。EarPods、ProではないAirPods など',loss:[-60,-56,-52,-48,-44,-42,-44]},
-  {id:'open',name:'オープンイヤー',desc:'耳をふさがない耳掛け・イヤーカフ型',loss:[-50,-47,-43,-39,-36,-35,-37]},
-  {id:'bone',name:'骨伝導',desc:'耳の前の骨を振動させるタイプ',loss:[-64,-56,-48,-43,-40,-40,-44]},
-  {id:'hpclosed',name:'密閉型ヘッドホン',desc:'耳をすっぽり覆うタイプ',loss:[-66,-62,-58,-56,-54,-54,-56]},
-  {id:'hpopen',name:'開放型・オンイヤー',desc:'外側が網目、または耳に乗せるヘッドホン',loss:[-44,-42,-39,-37,-35,-34,-36]}
+  {id:'canal',name:'カナル型',desc:'耳の穴にゴムを差し込む。AirPods Pro など',loss:[-82,-78,-74,-70,-66,-64,-66,-66],fit:true},
+  {id:'inner',name:'インナーイヤー型',desc:'耳に乗せるだけ。EarPods、ProではないAirPods など',loss:[-60,-56,-52,-48,-44,-42,-44,-44]},
+  {id:'open',name:'オープンイヤー',desc:'耳をふさがない耳掛け・イヤーカフ型',loss:[-50,-47,-43,-39,-36,-35,-37,-37]},
+  {id:'bone',name:'骨伝導',desc:'耳の前の骨を振動させるタイプ',loss:[-64,-56,-48,-43,-40,-40,-44,-44]},
+  {id:'hpclosed',name:'密閉型ヘッドホン',desc:'耳をすっぽり覆うタイプ',loss:[-66,-62,-58,-56,-54,-54,-56,-56]},
+  {id:'hpopen',name:'開放型・オンイヤー',desc:'外側が網目、または耳に乗せるヘッドホン',loss:[-44,-42,-39,-37,-35,-34,-36,-36]}
 ];
-const FIT={tight:[0,0,0,0,0,0,0],normal:[5,4,4,3,3,3,3],loose:[14,12,10,9,8,8,8]};
+const FIT={tight:[0,0,0,0,0,0,0,0],normal:[5,4,4,3,3,3,3,3],loose:[14,12,10,9,8,8,8,8]};
 const SCENES=[
   {id:'elev',name:'エレベーター',where:'すぐ隣',d:0.5,dBA:40,shape:'quiet'},
   {id:'lib',name:'図書館・自習室',where:'隣の席',d:0.7,dBA:40,shape:'quiet'},
@@ -384,7 +390,7 @@ function volDb(p){
 function volPct(db){
   if(db>=0) return 100;
   if(!(db>=VC[0][1])) return 0;
-  for(let i=0;i<VC.length-1;i++){const [p0,d0]=VC[i],[p1,d1]=VC[i+1];if(db<=d1) return Math.floor(p0+(db-d0)/(d1-d0)*(p1-p0));}
+  for(let i=0;i<VC.length-1;i++){const [p0,d0]=VC[i],[p1,d1]=VC[i+1];if(db<=d1) return p0+(db-d0)/(d1-d0)*(p1-p0);}
   return 100;
 }
 function aSum(levels,idx){
@@ -420,10 +426,10 @@ function safePct(base,m){
   return volPct(vb+(-6-m));
 }
 function computeAll(leak,base){
-  return SCENES.map(sc=>{const ev=evalScene(leak,sc);return Object.assign({sc,safe:safePct(base,ev.m)},ev);});
+  return SCENES.map(sc=>{const ev=evalScene(leak,sc);return Object.assign({sc,safe:safePct(base,ev.m),earSafe:isFinite(ev.m)?-6-ev.m:Infinity},ev);});
 }
 function computeMeas(N,P1,P2,env,micDistCm){
-  const idx=[1,2,3,4,5,6];
+  const idx=[1,2,3,4,5,6,7];
   const envSub=aSum(bandsFromA(env.dBA,SHAPES[env.shape]),idx);
   let nA=0;idx.forEach(i=>{nA+=N[i]*10**(AW[i]/10);});
   if(!(nA>0)) throw new Error('マイクの入力がありませんでした');
@@ -447,7 +453,7 @@ function computeMeas(N,P1,P2,env,micDistCm){
   return {leak10,q,r,K,ambDb:toDb(N),farDb:toDb(P1),nearDb:toDb(P2)};
 }
 function equivType(meas,vol){
-  const idx=[3,4,5,6].filter(i=>meas.q[i]==='ok'||meas.q[i]==='mixed');
+  const idx=[3,4,5,6,7].filter(i=>meas.q[i]==='ok'||meas.q[i]==='mixed');
   if(!idx.length) return null;
   let best=null;
   TYPES.forEach(t=>{
@@ -531,6 +537,8 @@ $('#ladder').addEventListener('click',e=>{const b=e.target.closest('.row');if(!b
 function estParams(){return {type:state.type,fit:state.fit,vol:state.vol,content:state.content,sens:state.sens};}
 function pill(l){return `<span class="pill lv${l}"><span class="seg" aria-hidden="true">${[0,1,2,3,4].map(k=>`<i${k<=l?' class="on"':''}></i>`).join('')}</span>${LEVELS[l].name}</span>`;}
 function safeText(p){const s=safeStep(p);return s>=16?'最大音量でもOK':s<1?'1段階でも漏れる':`${s} / 16までOK`;}
+function earNow(){return state.mode==='mic'&&state.meas?earLevel({vol:state.micVol,content:0,sens:0}):earLevel(estParams());}
+function earText(x){const e=earNow()+x.earSafe;return !isFinite(e)||e>=MAX_EAR?'耳で何dBでもOK':`耳で約${Math.round(e)}dBまで`;}
 function render(){
   $('#volOut').textContent=`${toStep(state.vol)} / 16`;
   $('#volStep').textContent=state.vol<1?'ミュート':`${Math.round(state.vol)}%`;
@@ -553,7 +561,7 @@ function render(){
   renderSummary(all);
   $('#ladder').innerHTML=all.map(x=>`<li><button type="button" class="row" data-id="${x.sc.id}" aria-pressed="${x.sc.id===state.sel}">
     <span class="row-main"><span class="row-name">${x.sc.name}</span><span class="row-meta">${x.sc.where}・${Math.round(x.sc.d*100)}cm・周りの音 ${x.sc.dBA}dB</span></span>
-    <span class="row-side">${pill(x.level)}<span class="row-safe">${safeText(x.safe)}</span></span></button></li>`).join('');
+    <span class="row-side">${pill(x.level)}<span class="row-safe">${safeText(x.safe)}<br>${earText(x)}</span></span></button></li>`).join('');
   renderChart(all.find(x=>x.sc.id===state.sel)||all[5]);
 }
 function renderSummary(all){
@@ -566,11 +574,12 @@ function renderSummary(all){
     const qs=state.meas.q.slice(1);
     const ok=qs.filter(s=>s==='ok').length,bad=qs.filter(s=>s==='xtalk').length,none=qs.filter(s=>s==='none').length;
     if(eq) extra+=`<div><dt>漏れ方の近さ</dt><dd>${eq.t.name}に近い（推定値との差 ${eq.diff>=0?'+':''}${Math.round(eq.diff)}dB）</dd></div>`;
-    extra+=`<div><dt>測定の確かさ</dt><dd>6帯域のうち 音漏れを確認${ok}・回り込み優勢${bad}・検出せず${none}</dd></div>`;
+    extra+=`<div><dt>測定の確かさ</dt><dd>7帯域のうち 音漏れを確認${ok}・回り込み優勢${bad}・検出せず${none}</dd></div>`;
   }
-  $('#summary').innerHTML=`<div class="sum-grid">
-    <div class="sum-cell"><div class="sum-k">新幹線・隣の席（走行中）</div>${pill(run.level)}<div class="sum-d">${LEVELS[run.level].desc}</div></div>
-    <div class="sum-cell"><div class="sum-k">停車した瞬間</div>${pill(stop.level)}<div class="sum-d">${LEVELS[stop.level].desc}</div></div>
+  $('#summary').innerHTML=`<div class="sum-head">
+    <div class="sum-k">新幹線で使うなら（停車中が基準）</div>
+    <div class="sum-main">${pill(stop.level)}<span class="sum-limit">${safeText(stop.safe)}・${earText(stop)}</span></div>
+    <div class="sum-d">${LEVELS[stop.level].desc}走行中は「${LEVELS[run.level].name}」ですが、駅に止まった瞬間に周りが静かになるので、停車中を基準にしています。耳に届いている音は、コントロールセンターの「聴覚」（耳のアイコン）で、聴きながらdBで確かめられます。</div>
   </div>
   <dl class="sum-list">
     <div><dt>気づかれやすい場面</dt><dd>${noticed.length?noticed.join('、'):'なし'}</dd></div>
@@ -579,12 +588,12 @@ function renderSummary(all){
 }
 function renderChart(x){
   $('#specTitle').textContent=`内訳：${x.sc.name}・${x.sc.where}`;
-  const L=30,R=334,T=12,B=162,gw=(R-L)/7;
+  const L=30,R=334,T=12,B=162,gw=(R-L)/BANDS.length;
   const y=v=>B-(Math.max(0,Math.min(90,v))/90)*(B-T);
   let s='';
   [0,20,40,60,80].forEach(v=>{s+=`<line class="grid" x1="${L}" x2="${R}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L-5}" y="${y(v)+3.5}" text-anchor="end">${v}</text>`;});
   s+=`<text class="ax" x="${L-5}" y="${T-2}" text-anchor="end">dB</text>`;
-  for(let i=0;i<7;i++){
+  for(let i=0;i<BANDS.length;i++){
     const cx=L+gw*(i+.5);const a=Math.max(x.amb[i],HEAR[i]);
     s+=`<rect class="amb" x="${(cx-15).toFixed(1)}" width="13" y="${y(a).toFixed(1)}" height="${(B-y(a)).toFixed(1)}" rx="2"/>`;
     if(x.nb[i]!=null&&isFinite(x.nb[i])){
@@ -599,7 +608,7 @@ function renderChart(x){
   if(x.worst<0) note='音が出ていないので、漏れもありません。';
   else{
     const i=x.worst,g=Math.round(x.mg[i]);
-    note=`いちばん目立つのは ${BL[i]}Hz 帯です。隣の人の耳の位置で約${Math.round(x.nb[i])}dB、周りの音は約${Math.round(Math.max(x.amb[i],HEAR[i]))}dB（差 ${g>0?'+':''}${g}dB）。`;
+    note=`いちばん目立つのは ${BL[i]}Hz 帯です。隣の人の耳の位置で${x.nb[i]<0?'0dB未満（ほぼ無音）':'約'+Math.round(x.nb[i])+'dB'}、周りの音は約${Math.round(Math.max(x.amb[i],HEAR[i]))}dB（差 ${g>0?'+':''}${g}dB）。`;
     if(i>=4) note+='高い音ほどイヤホンから漏れやすく、乗り物の騒音（低い音が中心）にも埋もれにくいので、シャカシャカ音として目立ちます。';
     else if(i<=2) note+='低めの音が漏れています。耳への密着が甘いと低音が抜けやすくなります。';
   }
@@ -690,11 +699,11 @@ function fft(re,im,inv){
         re[b]=re[a]-br;im[b]=im[a]-bi;re[a]+=br;im[a]+=bi;const t=cr*wr-ci*wi;ci=cr*wi+ci*wr;cr=t;}}
   }
 }
-function shapeAt(f){const x=Math.log2(f/125);if(x<=0) return MUSIC[0];if(x>=6) return MUSIC[6]-(x-6)*6;const i=Math.floor(x),t=x-i;return MUSIC[i]+(MUSIC[i+1]-MUSIC[i])*t;}
+function shapeAt(f){const x=Math.log2(f/125),top=MUSIC.length-1;if(x<=0) return MUSIC[0];if(x>=top) return MUSIC[top]-(x-top)*6;const i=Math.floor(x),t=x-i;return MUSIC[i]+(MUSIC[i+1]-MUSIC[i])*t;}
 function makeTestBuffer(c){
   const sr=c.sampleRate,N=65536,re=new Float64Array(N),im=new Float64Array(N);
   for(let k=1;k<N/2;k++){
-    const f=k*sr/N;if(f<60||f>14000) continue;
+    const f=k*sr/N;if(f<60||f>18000) continue;
     const mag=10**((shapeAt(f)-10*Math.log10(f/1000))/20),ph=Math.random()*2*Math.PI;
     re[k]=mag*Math.cos(ph);im[k]=mag*Math.sin(ph);re[N-k]=re[k];im[N-k]=-im[k];
   }
@@ -743,13 +752,13 @@ function renderMeasTable(){
   const QL={ok:'音漏れ',mixed:'回り込み混在',xtalk:'回り込み優勢',none:'検出せず'};
   const f=v=>v==null||!isFinite(v)?'—':v.toFixed(1);
   let h='<tr><th>帯域</th><th>①周りの音</th><th>②垂らす</th><th>③耳の横</th><th>②→③の増加</th><th>判定</th><th>10cm換算</th></tr>';
-  for(let i=1;i<7;i++) h+=`<tr><td>${BL[i]}Hz</td><td>${f(m.ambDb[i])}</td><td>${f(m.farDb[i])}</td><td>${f(m.nearDb[i])}</td><td>${m.r[i]==null?'—':(m.q[i]==='ok'&&m.farDb[i]!=null&&m.farDb[i]<=m.ambDb[i]+1?'≥':'')+f(m.r[i])}</td><td class="q${m.q[i]}">${QL[m.q[i]]}</td><td>${m.q[i]==='none'?'≤':''}${f(m.leak10[i])}</td></tr>`;
+  for(let i=1;i<BANDS.length;i++) h+=`<tr><td>${BL[i]}Hz</td><td>${f(m.ambDb[i])}</td><td>${f(m.farDb[i])}</td><td>${f(m.nearDb[i])}</td><td>${m.r[i]==null?'—':(m.q[i]==='ok'&&m.farDb[i]!=null&&m.farDb[i]<=m.ambDb[i]+1?'≥':'')+f(m.r[i])}</td><td class="q${m.q[i]}">${QL[m.q[i]]}</td><td>${m.q[i]==='none'?'≤':''}${f(m.leak10[i])}</td></tr>`;
   $('#measTable').innerHTML=h;
   $('#measK').textContent=`単位はdB（周りの音で感度を合わせた値）。感度補正 ${m.K.toFixed(1)}dB、マイク距離 ${state.micDist}cm と 3cm で計算。純粋な音漏れなら②→③で約${(20*Math.log10(state.micDist/3)).toFixed(0)}dB増えます。`;
   $('#measData').hidden=false;
   const w=[];
   if(m.q.slice(1).every(s=>s==='none')) w.push('テスト音を検出できませんでした。音量が0になっていないか、マイクがイヤホンのものになっているか確認してください。漏れがとても小さい可能性もあります。');
-  else if([3,4,5,6].filter(i=>m.q[i]==='xtalk').length>=2) w.push('高音域で、ケーブル内の電気的な回り込みが音漏れより大きく出ています。この帯域の結果は不確かなので、推定モードの結果も合わせて見てください。');
+  else if([3,4,5,6,7].filter(i=>m.q[i]==='xtalk').length>=2) w.push('高音域で、ケーブル内の電気的な回り込みが音漏れより大きく出ています。この帯域の結果は不確かなので、推定モードの結果も合わせて見てください。');
   M.measWarns=w;renderWarns();
 }
 $('#btnRun').addEventListener('click',async()=>{

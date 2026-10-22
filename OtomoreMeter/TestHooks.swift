@@ -21,6 +21,15 @@ enum TestHooks {
     }
     /// 合成録音で「本当に」漏れているイヤホンの種類（省略時はイヤホン名から判定した種類）
     static var mockTrueType: EarType? { env["OTOMORE_MOCK_TRUE_TYPE"].flatMap { EarType(rawValue: $0) } }
+    /// ヘルスケアのヘッドフォン音量の代わり（"dB:秒,dB:秒,..."）
+    static var mockHealth: [(db: Double, dur: Double)]? {
+        guard let s = env["OTOMORE_MOCK_HEALTH"] else { return nil }
+        return s.split(separator: ",").compactMap { p -> (db: Double, dur: Double)? in
+            let a = p.split(separator: ":")
+            guard a.count == 2, let d = Double(a[0]), let t = Double(a[1]) else { return nil }
+            return (db: d, dur: t)
+        }
+    }
     /// 保存データを消してから起動する
     static var reset: Bool { env["OTOMORE_RESET"] == "1" }
 }
