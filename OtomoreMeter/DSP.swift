@@ -17,6 +17,17 @@ struct Biquad {
         return Biquad(b0: alpha / a0, b1: 0, b2: -alpha / a0, a1: -2 * cos(w0) / a0, a2: (1 - alpha) / a0)
     }
 
+    /// 周波数fでのパワー利得 |H|²
+    func powerGain(at f: Double, sampleRate fs: Double) -> Double {
+        let w = 2 * Double.pi * f / fs
+        // H(e^jw) = (b0 + b1 e^-jw + b2 e^-2jw) / (1 + a1 e^-jw + a2 e^-2jw)
+        let nr = b0 + b1 * cos(w) + b2 * cos(2 * w)
+        let ni = -(b1 * sin(w) + b2 * sin(2 * w))
+        let dr = 1 + a1 * cos(w) + a2 * cos(2 * w)
+        let di = -(a1 * sin(w) + a2 * sin(2 * w))
+        return (nr * nr + ni * ni) / (dr * dr + di * di)
+    }
+
     mutating func step(_ x: Double) -> Double {
         let y = b0 * x + z1
         z1 = b1 * x - a1 * y + z2
@@ -25,7 +36,7 @@ struct Biquad {
     }
 }
 
-/// マイクの音をオクターブ帯域（125Hz〜8kHz）ごとのパワーに分ける
+/// マイクの音をオクターブ帯域（125Hz〜16kHz）ごとのパワーに分ける
 final class BandAnalyzer {
     private var stages: [[Biquad]]
     private(set) var sums: [Double]
@@ -33,19 +44,40 @@ final class BandAnalyzer {
     /// かたまり（約85ms）ごとのパワー。突発音に強い中央値を出すために残す
     private(set) var chunkPowers: [[Double]]
     let valid: [Bool]
+    /// フィルタの読み取りの補正（帯域内で平らな音を、その帯域のパワーどおりに読むための倍率）。
+    /// 高い帯域ほどフィルタの幅が狭くなって小さく読むので、その分を戻す（16kHz帯は約3.5dB）
+    let correction: [Double]
+    /// 帯域の上限（マイクとテスト音で扱う上限）
+    static let topFrequency = 18000.0
 
     init(sampleRate fs: Double) {
         var st: [[Biquad]] = []
         var ok: [Bool] = []
+        var corr: [Double] = []
         for fc in Model.bandFreqs {
             let usable = fc * 1.35 < fs / 2
             let center = usable ? fc : fs / 4
             let bq = Biquad.bandpass(center: center, q: 1.414, sampleRate: fs)
             st.append([bq, bq])
             ok.append(usable)
+            // 帯域内（fc/√2〜fc√2、ただし上限まで）で対数的に平らな音を通したときの平均利得（2段なので2乗）
+            let lo = fc / 2.0.squareRoot()
+            let hi = min(fc * 2.0.squareRoot(), min(BandAnalyzer.topFrequency, fs / 2 * 0.98))
+            var g = 0.0
+            let n = 400
+            if usable && hi > lo {
+                for k in 0..<n {
+                    let f = lo * pow(hi / lo, (Double(k) + 0.5) / Double(n))
+                    let p = bq.powerGain(at: f, sampleRate: fs)
+                    g += p * p
+                }
+                g /= Double(n)
+            }
+            corr.append(g > 0 ? 1 / g : 1)
         }
         stages = st
         valid = ok
+        correction = corr
         sums = Array(repeating: 0, count: Model.bandFreqs.count)
         chunkPowers = Array(repeating: [], count: Model.bandFreqs.count)
     }
@@ -80,16 +112,17 @@ final class BandAnalyzer {
 
     func meanPowers() -> [Double] {
         let c = Double(count)
-        return sums.map { count > 0 ? $0 / c : 0 }
+        return sums.enumerated().map { count > 0 ? $0.element / c * correction[$0.offset] : 0 }
     }
 
     /// かたまりごとのパワーの中央値（話し声やアナウンスが一瞬入っても引っぱられにくい）
     func robustPowers() -> [Double] {
-        chunkPowers.map { arr in
+        chunkPowers.enumerated().map { b, arr in
             guard !arr.isEmpty else { return 0 }
             let s = arr.sorted()
             let m = s.count / 2
-            return s.count % 2 == 1 ? s[m] : (s[m - 1] + s[m]) / 2
+            let med = s.count % 2 == 1 ? s[m] : (s[m - 1] + s[m]) / 2
+            return med * correction[b]
         }
     }
 }
@@ -115,7 +148,7 @@ enum ToneGenerator {
         var freqs: [Double] = []
         let toneCount = 400
         let fLow = 63.0
-        let fHigh = 18000.0
+        let fHigh = BandAnalyzer.topFrequency
         var lastK = -1
         for i in 0..<toneCount {
             let f = fLow * pow(fHigh / fLow, Double(i) / Double(toneCount - 1))

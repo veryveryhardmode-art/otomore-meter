@@ -71,6 +71,8 @@ final class OtomoreMeterUITests: XCTestCase {
         scrollTo(app, healthHead)
         XCTAssertTrue(healthHead.exists, "ヘルスケアの欄がない")
         XCTAssertTrue(any(app, "ふだんの音（平均）").exists, "ヘルスケアの平均が出ない")
+        app.swipeUp()
+        XCTAssertTrue(any(app, "いちばん大きいとき").exists, "ヘルスケアの最大が出ない")
         shot(app, "03b_ヘルスケア")
         scrollTo(app, shinRow, up: false)
 

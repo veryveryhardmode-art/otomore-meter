@@ -76,6 +76,7 @@ let an = BandAnalyzer(sampleRate: fs)
 samples.withUnsafeBufferPointer { an.process($0.baseAddress!, count: $0.count, accumulate: false) }
 samples.withUnsafeBufferPointer { an.process($0.baseAddress!, count: $0.count, accumulate: true) }
 let bands = an.meanPowers().map { 10 * log10($0) }
+print("  帯域フィルタの読み取り補正: " + zip(Model.bandLabels, an.correction).map { "\($0.0)Hz \(s1(10 * log10($0.1)))dB" }.joined(separator: " / "))
 for i in 0..<Model.bandFreqs.count {
     print("  \(Model.bandLabels[i])Hz: 分析 \(s1(bands[i] - bands[0]))dB / 設計 \(s1(Model.music[i] - Model.music[0]))dB")
 }
