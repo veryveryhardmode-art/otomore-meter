@@ -24,6 +24,17 @@ final class Measurer: ObservableObject {
     private var tone: AVAudioPCMBuffer?
 
     init() {
+        if TestHooks.mockMic {
+            // シミュレーターのテスト用：合成録音の素材を先に作っておく
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let a = BandSignalBank(sampleRate: 48000, seconds: 3, toneCount: 240, seed: 5)
+                let l = BandSignalBank(sampleRate: 48000, seconds: 1, toneCount: 240, seed: 6)
+                DispatchQueue.main.async {
+                    self?.simBanks = (a, l)
+                }
+            }
+            return
+        }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let t = ToneGenerator.make()
             DispatchQueue.main.async {
@@ -228,6 +239,7 @@ final class Measurer: ObservableObject {
 
     private var simTimer: DispatchSourceTimer?
     private var sim: SimulatedMic?
+    private var simBanks: (BandSignalBank, BandSignalBank)?
     private let simQueue = DispatchQueue(label: "otomore.simulated-mic")
 
     @MainActor
@@ -244,8 +256,11 @@ final class Measurer: ObservableObject {
         let leakAtMic = est.map { ($0 ?? -Double.infinity) - musicAdj + 20 * log10(0.1 / Model.micDistance) }
         let scene = TestHooks.mockScene
         let amb = Model.bandsFromA(scene.dBA, shape: scene.shape)
-        let ambientBank = BandSignalBank(sampleRate: fs, seconds: 3, toneCount: 240, seed: 5)
-        let leakBank = BandSignalBank(sampleRate: fs, seconds: 1, toneCount: 240, seed: 6)
+        let banks = simBanks ?? (BandSignalBank(sampleRate: fs, seconds: 3, toneCount: 240, seed: 5),
+                                 BandSignalBank(sampleRate: fs, seconds: 1, toneCount: 240, seed: 6))
+        simBanks = banks
+        let ambientBank = banks.0
+        let leakBank = banks.1
         let mic = SimulatedMic(sampleRate: fs, ambientBank: ambientBank, leakBank: leakBank,
                                ambientDb: amb, leakAtMicDb: leakAtMic, micNoiseDb: 32,
                                calibration: Model.micCalibration, modDepthDb: 2, seed: 7)

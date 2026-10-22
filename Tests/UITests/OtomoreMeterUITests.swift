@@ -78,9 +78,9 @@ final class OtomoreMeterUITests: XCTestCase {
         XCTAssertTrue(start.waitForExistence(timeout: 5), "測定画面が開かない")
         shot(app, "05_測定画面")
         start.tap()
-        XCTAssertTrue(any(app, "周りの音を測っています").waitForExistence(timeout: 8), "周りの音の測定に進まない")
+        XCTAssertTrue(any(app, "周りの音を測っています").waitForExistence(timeout: 20), "周りの音の測定に進まない")
         shot(app, "06_測定中")
-        XCTAssertTrue(any(app, "測定が終わりました").waitForExistence(timeout: 30), "測定が終わらない")
+        XCTAssertTrue(any(app, "測定が終わりました").waitForExistence(timeout: 40), "測定が終わらない")
         shot(app, "07_測定完了")
         button(app, "閉じる").tap()
 

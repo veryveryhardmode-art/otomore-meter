@@ -290,15 +290,15 @@ enum Model {
     /// iPhoneマイク自身の雑音（白色雑音32dB SPLを帯域ごとに分けた目安）
     static let micNoiseFloor: [Double] = bandFreqs.map { 32 + 10 * log10(0.7071 * $0 / 24000) }
 
-    /// 「測った場所」の判定に使う周りの音。マイクの雑音に近い帯域は、本当の周りの音がもっと小さいかもしれないので使わない
+    /// 「測った場所」の判定に使う周りの音。マイクの雑音に近い帯域は、本当の周りの音がもっと小さいかもしれないので6dB小さめに見積もる
     static func hereAmbient(_ measured: [Double?]) -> [Double] {
         var out: [Double] = []
         for i in 0..<bandFreqs.count {
-            if i < measured.count, let v = measured[i], v > micNoiseFloor[i] + 6 {
-                out.append(v)
-            } else {
+            guard i < measured.count, let v = measured[i] else {
                 out.append(-Double.infinity)
+                continue
             }
+            out.append(v > micNoiseFloor[i] + 6 ? v : v - 6)
         }
         return out
     }
