@@ -73,6 +73,8 @@ final class OtomoreMeterUITests: XCTestCase {
         XCTAssertTrue(any(app, "ふだんの音（平均）").exists, "ヘルスケアの平均が出ない")
         app.swipeUp()
         XCTAssertTrue(any(app, "いちばん大きいとき").exists, "ヘルスケアの最大が出ない")
+        // カナル型（AirPods Pro）は推定では最大音量でも停車中の上限に届かない
+        XCTAssertTrue(any(app, "最大音量でも新幹線の停車中の上限を超えません").exists, "ヘルスケアの判定文がおかしい")
         shot(app, "03b_ヘルスケア")
         scrollTo(app, shinRow, up: false)
 

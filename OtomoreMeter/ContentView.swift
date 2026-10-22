@@ -417,8 +417,11 @@ struct ContentView: View {
     }
 
     private func healthVerdict(limit: Double?) -> String {
-        guard let l = limit, l.isFinite else {
-            return "いまのイヤホンでは、新幹線の停車中に気になる音量の上限はありません。"
+        guard let l = limit else {
+            return "音量が0のあいだは比べられません。音量を上げると、新幹線の停車中の上限と比べます。"
+        }
+        if !l.isFinite || l >= Model.maxEar {
+            return "いまのイヤホンなら、最大音量でも新幹線の停車中の上限を超えません。"
         }
         let lv = Int(l.rounded())
         if health.p90 <= l {
