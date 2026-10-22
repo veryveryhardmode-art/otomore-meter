@@ -1,0 +1,99 @@
+name: Verify
+
+# 音はどこにも出さない検証：合成録音のシミュレーションと、シミュレーターでの画面操作テスト
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: verify
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Model check and measurement simulation (same Swift code as the app)
+        shell: bash
+        run: |
+          swiftc -O -swift-version 5 \
+            OtomoreMeter/Model.swift OtomoreMeter/EarphoneCatalog.swift OtomoreMeter/DSP.swift \
+            Tests/ModelCheck/main.swift -o modelcheck
+          ./modelcheck > modelcheck.txt
+          swiftc -O -swift-version 5 \
+            OtomoreMeter/Model.swift OtomoreMeter/EarphoneCatalog.swift OtomoreMeter/DSP.swift OtomoreMeter/SimSignal.swift \
+            Tests/MeasureSim/main.swift -o measuresim
+          ./measuresim > measuresim.txt
+          cat measuresim.txt
+
+      - name: Install XcodeGen
+        shell: bash
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        shell: bash
+        run: xcodegen generate
+
+      - name: Pick a simulator
+        id: sim
+        shell: bash
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)['devices']
+          c = [x for k, v in sorted(d.items()) if 'iOS' in k for x in v if x['name'].startswith('iPhone')]
+          print(c[-1]['udid'] if c else '')
+          ")
+          NAME=$(xcrun simctl list devices available | grep "$UDID" | head -1)
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "simulator: $NAME"
+
+      - name: UI test on the simulator
+        shell: bash
+        run: |
+          set +e
+          xcodebuild test \
+            -project OtomoreMeter.xcodeproj \
+            -scheme OtomoreMeter \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath ui.xcresult \
+            CODE_SIGNING_ALLOWED=NO > uitest.log 2>&1
+          status=$?
+          grep -E "error:|Test Case|XCTAssert|failed|passed|Executed" uitest.log | tail -80
+          exit $status
+
+      - name: Export screenshots
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p shots
+          if [ -d ui.xcresult ]; then
+            xcrun xcresulttool export attachments --path ui.xcresult --output-path shots || true
+          fi
+          ls -la shots
+          if [ -n "$(ls -A shots)" ]; then (cd shots && zip -q ../screenshots.zip *); fi
+
+      - name: Publish results
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="verify-${{ github.run_number }}"
+          FILES=""
+          for f in modelcheck.txt measuresim.txt screenshots.zip; do [ -f "$f" ] && FILES="$FILES $f"; done
+          if [ -f uitest.log ]; then tail -300 uitest.log > uitest-tail.txt; FILES="$FILES uitest-tail.txt"; fi
+          gh release create "$TAG" $FILES \
+            --title "検証 ${{ github.run_number }}" \
+            --notes "合成録音による実測のシミュレーションと、シミュレーターでの画面操作テストの結果です（音はどこにも出していません）。" \
+            --prerelease

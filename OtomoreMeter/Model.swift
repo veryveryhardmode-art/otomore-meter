@@ -30,14 +30,15 @@ enum EarType: String, CaseIterable, Identifiable, Codable {
     }
 
     /// 耳に届く音に対して、耳から10cm外側へ漏れる量（dB、125Hz〜8kHzの帯域ごと）
+    /// 公開されている聞き比べ（静かな部屋で20cm・1m・真横）に合うよう、全種類を24dB下げてある
     var loss: [Double] {
         switch self {
-        case .canal: return [-58, -54, -50, -46, -42, -40, -42]
-        case .inner: return [-36, -32, -28, -24, -20, -18, -20]
-        case .open: return [-26, -23, -19, -15, -12, -11, -13]
-        case .bone: return [-40, -32, -24, -19, -16, -16, -20]
-        case .hpclosed: return [-42, -38, -34, -32, -30, -30, -32]
-        case .hpopen: return [-20, -18, -15, -13, -11, -10, -12]
+        case .canal: return [-82, -78, -74, -70, -66, -64, -66]
+        case .inner: return [-60, -56, -52, -48, -44, -42, -44]
+        case .open: return [-50, -47, -43, -39, -36, -35, -37]
+        case .bone: return [-64, -56, -48, -43, -40, -40, -44]
+        case .hpclosed: return [-66, -62, -58, -56, -54, -54, -56]
+        case .hpopen: return [-44, -42, -39, -37, -35, -34, -36]
         }
     }
 
@@ -199,8 +200,11 @@ enum Model {
         "何の曲か聞き取れるほど漏れています。"
     ]
 
-    /// 音量（%）→ dB の目安カーブ
-    static let volCurve: [(pct: Double, db: Double)] = [(1, -58), (20, -40), (60, -17), (100, 0)]
+    /// 音量（%）→ dB。AirPodsで実測された10%ごとの値（最大音量を0dBとする）
+    static let volCurve: [(pct: Double, db: Double)] = [
+        (1, -70), (10, -60.8), (20, -51.1), (30, -42.4), (40, -35.1), (50, -28.2),
+        (60, -22.2), (70, -15.9), (80, -10.2), (90, -4.9), (100, 0)
+    ]
 
     static func volDb(_ pct: Double) -> Double {
         guard pct >= 1 else { return -Double.infinity }

@@ -63,16 +63,20 @@ final class Measurer: ObservableObject {
         cancelled = false
         progress = 0
         phase = .idle
-        let granted = await Measurer.requestPermission()
+        let mock = TestHooks.mockMic
+        let granted = mock ? true : await Measurer.requestPermission()
         guard granted else {
             restore()
             phase = .failed("マイクの使用が許可されていません。設定アプリ →「音漏れメーター」→ マイク をオンにしてください。")
             return nil
         }
         do {
-            if AVAudioSession.sharedInstance().outputVolume < 0.01 { throw MeasureError.zeroVolume }
-            if tone == nil { tone = ToneGenerator.make() }
-            guard tone != nil else { throw MeasureError.toneNotReady }
+            let currentVolume = TestHooks.mockVolume ?? Double(AVAudioSession.sharedInstance().outputVolume)
+            if currentVolume < 0.01 { throw MeasureError.zeroVolume }
+            if !mock {
+                if tone == nil { tone = ToneGenerator.make() }
+                guard tone != nil else { throw MeasureError.toneNotReady }
+            }
 
             let tick = UIImpactFeedbackGenerator(style: .medium)
             tick.prepare()
@@ -82,11 +86,16 @@ final class Measurer: ObservableObject {
                 try await pause(1.0)
             }
 
-            try startEngine()
-            try await pause(0.6)
-            let route = AVAudioSession.sharedInstance().currentRoute
-            guard Measurer.outputIsHeadphones(AVAudioSession.sharedInstance()) else { throw MeasureError.noHeadphoneOutput }
-            guard route.inputs.first?.portType == .builtInMic else { throw MeasureError.notBuiltInMic }
+            if mock {
+                startSimulatedMic(volume: currentVolume, routeName: routeName)
+                try await pause(0.6)
+            } else {
+                try startEngine()
+                try await pause(0.6)
+                let route = AVAudioSession.sharedInstance().currentRoute
+                guard Measurer.outputIsHeadphones(AVAudioSession.sharedInstance()) else { throw MeasureError.noHeadphoneOutput }
+                guard route.inputs.first?.portType == .builtInMic else { throw MeasureError.notBuiltInMic }
+            }
 
             phase = .ambient
             let ambient = try await collect(seconds: 3.0, from: 0, to: 0.45)
@@ -94,7 +103,7 @@ final class Measurer: ObservableObject {
             phase = .tone
             playTone()
             try await pause(0.7)
-            let volume = Double(AVAudioSession.sharedInstance().outputVolume)
+            let volume = TestHooks.mockVolume ?? Double(AVAudioSession.sharedInstance().outputVolume)
             let tonePowers = try await collect(seconds: 3.5, from: 0.5, to: 1.0)
             let valid = analyzerValid()
 
@@ -215,8 +224,57 @@ final class Measurer: ObservableObject {
         lock.unlock()
     }
 
+    // MARK: - シミュレーター用（合成した録音をマイクの代わりに流す）
+
+    private var simTimer: DispatchSourceTimer?
+    private var sim: SimulatedMic?
+    private let simQueue = DispatchQueue(label: "otomore.simulated-mic")
+
+    @MainActor
+    private func startSimulatedMic(volume: Double, routeName: String) {
+        let fs = 48000.0
+        let a = BandAnalyzer(sampleRate: fs)
+        lock.lock()
+        analyzer = a
+        collecting = false
+        lock.unlock()
+        let type = TestHooks.mockTrueType ?? EarphoneCatalog.guess(name: routeName) ?? .canal
+        let est = Model.estimatedLeak(type: type, fit: .normal, volumePct: volume * 100, loudness: .normal)
+        let musicAdj = Model.musicDbfs - Model.testToneDbfs
+        let leakAtMic = est.map { ($0 ?? -Double.infinity) - musicAdj + 20 * log10(0.1 / Model.micDistance) }
+        let scene = TestHooks.mockScene
+        let amb = Model.bandsFromA(scene.dBA, shape: scene.shape)
+        let ambientBank = BandSignalBank(sampleRate: fs, seconds: 3, toneCount: 240, seed: 5)
+        let leakBank = BandSignalBank(sampleRate: fs, seconds: 1, toneCount: 240, seed: 6)
+        let mic = SimulatedMic(sampleRate: fs, ambientBank: ambientBank, leakBank: leakBank,
+                               ambientDb: amb, leakAtMicDb: leakAtMic, micNoiseDb: 32,
+                               calibration: Model.micCalibration, modDepthDb: 2, seed: 7)
+        sim = mic
+        let timer = DispatchSource.makeTimerSource(queue: simQueue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(85))
+        timer.setEventHandler { [weak self] in
+            guard let self = self, let m = self.sim else { return }
+            let x = m.next(4096)
+            x.withUnsafeBufferPointer { p in
+                guard let base = p.baseAddress else { return }
+                self.lock.lock()
+                self.analyzer?.process(base, count: p.count, accumulate: self.collecting)
+                self.lock.unlock()
+            }
+        }
+        timer.resume()
+        simTimer = timer
+    }
+
     @MainActor
     private func playTone() {
+        if TestHooks.mockMic {
+            // Bluetoothの遅れぶん待ってから「漏れ」を入れる
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.sim?.leakOn = true
+            }
+            return
+        }
         guard let p = player, let t = tone else { return }
         p.volume = 1
         p.scheduleBuffer(t, at: nil, options: .loops, completionHandler: nil)
@@ -225,6 +283,9 @@ final class Measurer: ObservableObject {
 
     @MainActor
     private func stopEngine() {
+        simTimer?.cancel()
+        simTimer = nil
+        sim = nil
         player?.stop()
         if let e = engine {
             e.inputNode.removeTap(onBus: 0)

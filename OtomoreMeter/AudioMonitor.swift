@@ -17,10 +17,12 @@ final class AudioMonitor: ObservableObject {
 
     init() {
         activate()
-        volumeObservation = session.observe(\.outputVolume, options: [.initial, .new]) { [weak self] s, _ in
-            let v = Double(s.outputVolume)
-            DispatchQueue.main.async {
-                self?.volume = v
+        if TestHooks.mockVolume == nil {
+            volumeObservation = session.observe(\.outputVolume, options: [.initial, .new]) { [weak self] s, _ in
+                let v = Double(s.outputVolume)
+                DispatchQueue.main.async {
+                    self?.volume = v
+                }
             }
         }
         let nc = NotificationCenter.default
@@ -49,11 +51,17 @@ final class AudioMonitor: ObservableObject {
         } catch {
             // 失敗しても、読み取れる範囲で続ける
         }
-        volume = Double(session.outputVolume)
+        volume = TestHooks.mockVolume ?? Double(session.outputVolume)
         updateRoute()
     }
 
     func updateRoute() {
+        if let name = TestHooks.mockRouteName {
+            routeName = name
+            routeKind = TestHooks.mockRouteKind
+            guessedType = routeKind.isHeadphones ? EarphoneCatalog.guess(name: name) : nil
+            return
+        }
         guard let out = session.currentRoute.outputs.first else {
             routeName = ""
             routeKind = .speaker

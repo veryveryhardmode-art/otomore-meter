@@ -36,6 +36,9 @@ final class UserPrefs: ObservableObject {
 
     init() {
         var s = Stored(loudness: .normal, fit: .normal, overrides: [:], measurements: [:], useMeasured: true, micOffset: 0)
+        if TestHooks.reset {
+            UserDefaults.standard.removeObject(forKey: UserPrefs.key)
+        }
         if let data = UserDefaults.standard.data(forKey: UserPrefs.key),
            let decoded = try? UserPrefs.makeDecoder().decode(Stored.self, from: data) {
             s = decoded
