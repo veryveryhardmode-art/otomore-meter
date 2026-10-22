@@ -115,6 +115,8 @@ struct PlaceEval {
     let worstMargin: Double
     let worstBand: Int
     let level: Int
+    /// いちばん目立つ帯域の漏れが「測りきれず、これ以下」という上限値かどうか
+    var uncertain: Bool = false
 }
 
 // MARK: - 実測の結果
@@ -273,6 +275,37 @@ enum Model {
         return out
     }
 
+    static func evaluate(leak: [Double?], ambient: [Double], distance: Double, upperBound: [Bool]?) -> PlaceEval {
+        let e = evaluate(leak: leak, ambient: ambient, distance: distance)
+        guard let ub = upperBound, e.worstBand >= 0, e.worstBand < ub.count, ub[e.worstBand] else { return e }
+        var u = e
+        u.uncertain = true
+        return u
+    }
+
+    static func evaluate(leak: [Double?], place: Place, upperBound: [Bool]?) -> PlaceEval {
+        evaluate(leak: leak, ambient: bandsFromA(place.dBA, shape: place.shape), distance: place.distance, upperBound: upperBound)
+    }
+
+    /// iPhoneマイク自身の雑音（白色雑音32dB SPLを帯域ごとに分けた目安）
+    static let micNoiseFloor: [Double] = bandFreqs.map { 32 + 10 * log10(0.7071 * $0 / 24000) }
+
+    /// 「測った場所」の判定に使う周りの音。マイクの雑音に近い帯域は、本当の周りの音がもっと小さいかもしれないので使わない
+    static func hereAmbient(_ measured: [Double?]) -> [Double] {
+        var out: [Double] = []
+        for i in 0..<bandFreqs.count {
+            if i < measured.count, let v = measured[i], v > micNoiseFloor[i] + 6 {
+                out.append(v)
+            } else {
+                out.append(-Double.infinity)
+            }
+        }
+        return out
+    }
+
+    /// 漏れ音を「検出した」とみなす比（テスト音のときのパワー ÷ 周りの音だけのパワー）
+    static let detectRatio = 1.5
+
     static func evaluate(leak: [Double?], ambient: [Double], distance: Double) -> PlaceEval {
         let df = distanceFactor(distance)
         var neighbor: [Double?] = []
@@ -341,12 +374,12 @@ enum Model {
             guard pa > 0, pt > 0 else { continue }
             ambDb[i] = 10 * log10(pa) + k
             let leakP: Double
-            if pt > pa * 1.26 {
+            if pt > pa * detectRatio {
                 leakP = pt - pa
                 detected[i] = true
             } else {
                 // 周りの音に埋もれて検出できない → 「これ以下」という上限値
-                leakP = pa * 0.26
+                leakP = pa * (detectRatio - 1)
             }
             leak10[i] = 10 * log10(leakP) + k + distAdj + musicAdj
         }

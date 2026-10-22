@@ -27,17 +27,21 @@ struct ContentView: View {
         return Model.estimatedLeak(type: earType, fit: prefs.fit, volumePct: volumePct, loudness: prefs.loudness)
     }
 
+    /// 実測で「測りきれなかった」帯域（上限値しかない帯域）
+    private var upperBound: [Bool]? {
+        guard usingMeasured, let m = measurement else { return nil }
+        return m.detected.map { !$0 }
+    }
+
     private func eval(_ p: Place) -> PlaceEval {
-        Model.evaluate(leak: leak, place: p)
+        Model.evaluate(leak: leak, place: p, upperBound: upperBound)
     }
 
     private func hereEval(_ m: MeasureResult) -> PlaceEval {
         let shiftCal = calibration - m.calibration
-        let amb: [Double] = m.ambientDb.map { v in
-            if let v = v { return v + shiftCal }
-            return -Double.infinity
-        }
-        return Model.evaluate(leak: leak, ambient: amb, distance: Model.neighborDistance)
+        let shifted: [Double?] = m.ambientDb.map { v in v.map { $0 + shiftCal } }
+        return Model.evaluate(leak: leak, ambient: Model.hereAmbient(shifted), distance: Model.neighborDistance,
+                              upperBound: m.detected.map { !$0 })
     }
 
     private func safeSteps(_ ev: PlaceEval) -> Int? {
@@ -45,9 +49,12 @@ struct ContentView: View {
         return Model.steps(fromPct: Model.safeVolumePct(current: volumePct, worstMargin: ev.worstMargin))
     }
 
-    private func safeLabel(_ s: Int?) -> String {
+    private func safeLabel(_ s: Int?, uncertain: Bool = false) -> String {
         guard let s = s else { return "—（無音）" }
         if s >= 16 { return "最大音量でもOK" }
+        if uncertain {
+            return s <= 0 ? "測りきれず" : "少なくとも \(s) / 16 まではOK"
+        }
         if s <= 0 { return "1段階でも漏れる" }
         return "\(s) / 16 までOK"
     }
@@ -211,7 +218,9 @@ struct ContentView: View {
         let run = evals[placeIndex("shinRun")]
         let stop = evals[placeIndex("shinStop")]
         let noticed = zip(Model.places, evals).filter { $0.1.level >= 2 }.map { $0.0.name }
-        let minSafe = evals.compactMap { safeSteps($0) }.min()
+        let safePairs = evals.compactMap { e -> (Int, Bool)? in safeSteps(e).map { ($0, e.uncertain) } }
+        let minSafe = safePairs.map { $0.0 }.min()
+        let minUncertain = safePairs.contains { $0.0 == minSafe && $0.1 }
         return Section {
             HStack(alignment: .top, spacing: 12) {
                 summaryCell(title: "新幹線・隣の席（走行中）", ev: run)
@@ -219,7 +228,7 @@ struct ContentView: View {
             }
             .padding(.vertical, 4)
             LabeledRow(label: "気づかれやすい場面", value: noticed.isEmpty ? "なし" : noticed.joined(separator: "、"))
-            LabeledRow(label: "どこでもセーフな音量", value: safeLabel(minSafe))
+            LabeledRow(label: "どこでもセーフな音量", value: safeLabel(minSafe, uncertain: minUncertain))
         } header: {
             Text(usingMeasured ? "判定（実測をもとに計算）" : "判定（音量と種類から推定）")
         } footer: {
@@ -235,7 +244,7 @@ struct ContentView: View {
                 .font(.caption.weight(.semibold))
                 .foregroundColor(.secondary)
             LevelPill(level: ev.level)
-            Text(Model.levelDescs[ev.level])
+            Text(ev.uncertain && ev.level > 0 ? "測りきれなかったので、これ以下です。" : Model.levelDescs[ev.level])
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -304,7 +313,7 @@ struct ContentView: View {
                     Spacer(minLength: 8)
                     VStack(alignment: .trailing, spacing: 3) {
                         LevelPill(level: ev.level)
-                        Text(safeLabel(safeSteps(ev)))
+                        Text(safeLabel(safeSteps(ev), uncertain: ev.uncertain))
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -328,7 +337,7 @@ struct ContentView: View {
                         eval: ev
                     )
                 } label: {
-                    PlaceRow(place: place, eval: ev, safe: safeLabel(safeSteps(ev)))
+                    PlaceRow(place: place, eval: ev, safe: safeLabel(safeSteps(ev), uncertain: ev.uncertain))
                 }
             }
         } header: {

@@ -30,6 +30,7 @@ let types: [EarType] = [.canal, .inner, .open, .bone, .hpclosed, .hpopen]
 let steps = [4, 8, 12, 16]
 
 print("=== 実測モードの合成録音シミュレーション ===")
+print("改良: 帯域パワーは約85msごとの中央値 / 検出の基準は1.76dB（1.5倍） / マイク雑音に近い帯域は周りの音として使わない")
 print("条件: サンプリング48kHz / 4096サンプルずつ処理 / 周りの音3.0秒 → テスト音開始(Bluetooth遅れ0.25秒) → 0.7秒後から3.5秒")
 print("      マイク感度K=\(Int(K)) / マイク雑音\(Int(micNoiseDb))dB / 騒音は帯域ごとに±2dBでゆっくり揺らぐ")
 print("      実機のイヤホンはモデル値から帯域ごとに±3dBずれている / マイクとイヤホンの距離は2〜5cmのどこか（アプリは3cmとして計算）")
@@ -95,20 +96,21 @@ func run(_ t: Trial) -> Outcome {
         let inAmb = tStart >= ambStart && tStart < ambEnd
         let inTone = tStart >= toneWinStart && tStart < toneWinEnd
         if inAmb && phase == 0 { an.reset(); phase = 1 }
-        if !inAmb && phase == 1 { pAmb = an.meanPowers(); phase = 2 }
+        if !inAmb && phase == 1 { pAmb = an.robustPowers(); phase = 2 }
         if inTone && phase == 2 { an.reset(); phase = 3 }
         let x = mic.next(chunk)
         x.withUnsafeBufferPointer { an.process($0.baseAddress!, count: $0.count, accumulate: inAmb || inTone) }
         k += 1
     }
-    pTone = an.meanPowers()
+    pTone = an.robustPowers()
     let r = try! Model.computeMeasurement(ambient: pAmb, tone: pTone, valid: an.valid,
                                           volume: Double(t.step) / 16, calibration: K, routeName: "sim")
     let hereTrue = Model.evaluate(leak: trueLeak10, ambient: trueAmb, distance: Model.neighborDistance)
-    let hereMeas = Model.evaluate(leak: r.leak10, ambient: r.ambientDb.map { $0 ?? -Double.infinity },
-                                  distance: Model.neighborDistance)
+    let ub = r.detected.map { !$0 }
+    let hereMeas = Model.evaluate(leak: r.leak10, ambient: Model.hereAmbient(r.ambientDb),
+                                  distance: Model.neighborDistance, upperBound: ub)
     let placeTrue = Model.places.map { Model.evaluate(leak: trueLeak10, place: $0) }
-    let placeMeas = Model.places.map { Model.evaluate(leak: r.leak10, place: $0) }
+    let placeMeas = Model.places.map { Model.evaluate(leak: r.leak10, place: $0, upperBound: ub) }
     return Outcome(trial: t, trueLeak10: trueLeak10, trueAmb: trueAmb, leakAtMic: leakAtMic, result: r,
                    hereTrue: hereTrue, hereMeas: hereMeas, placeTrue: placeTrue, placeMeas: placeMeas)
 }
@@ -168,9 +170,9 @@ for idx in [0, 7 * 8 + 3, mainCount - 5] where idx < outs.count {
     print("  10cmの漏れ(真) : " + o.trueLeak10.map { f1($0) }.joined(separator: " "))
     print("  10cmの漏れ(測) : " + o.result.leak10.map { f1($0) }.joined(separator: " "))
     print("  検出           : " + o.result.detected.map { $0 ? "  ○  " : "  ×  " }.joined(separator: " "))
-    print("  測った場所の判定: 真=\(Model.levelNames[o.hereTrue.level]) / 実測=\(Model.levelNames[o.hereMeas.level])")
+    print("  測った場所の判定: 真=\(Model.levelNames[o.hereTrue.level]) / 実測=\(Model.levelNames[o.hereMeas.level])\(o.hereMeas.uncertain ? "（これ以下）" : "")")
     for (i, p) in Model.places.enumerated() {
-        print("    \(p.name): 真=\(Model.levelNames[o.placeTrue[i].level]) / 実測=\(Model.levelNames[o.placeMeas[i].level])")
+        print("    \(p.name): 真=\(Model.levelNames[o.placeTrue[i].level]) / 実測=\(Model.levelNames[o.placeMeas[i].level])\(o.placeMeas[i].uncertain ? "（これ以下）" : "")")
     }
 }
 
@@ -217,26 +219,27 @@ for (name, lo, hi) in buckets {
 }
 
 // ---- 3. 判定の一致 ----
-func agreement(_ pairs: [(Int, Int)]) -> String {
+func agreement(_ pairs: [(Int, Int, Bool)]) -> String {
     let n = pairs.count
     let exact = pairs.filter { $0.0 == $0.1 }.count
     let near = pairs.filter { abs($0.0 - $0.1) <= 1 }.count
     let lenient = pairs.filter { $0.0 >= 2 && $0.1 <= 1 }.count
-    let strict = pairs.filter { $0.0 <= 1 && $0.1 >= 3 }.count
-    return "n=\(n) 一致\(pct(exact, n)) ±1段階以内\(pct(near, n)) 甘く出た(真は気づかれるのに実測は大丈夫)\(pct(lenient, n)) 厳しく出た\(pct(strict, n))"
+    let strict = pairs.filter { $0.0 <= 1 && $0.1 >= 3 }
+    let strictMarked = strict.filter { $0.2 }.count
+    return "n=\(n) 一致\(pct(exact, n)) ±1段階以内\(pct(near, n)) 甘く出た(真は気づかれるのに実測は大丈夫)\(pct(lenient, n)) 厳しく出た\(pct(strict.count, n))（うち「これ以下」の印つき \(strictMarked)/\(strict.count)）"
 }
 print("")
 print("=== 3. 判定の一致（真の値で判定した結果と、実測値で判定した結果） ===")
-print("  測った場所で隣の席: " + agreement(outs.map { ($0.hereTrue.level, $0.hereMeas.level) }))
+print("  測った場所で隣の席: " + agreement(outs.map { ($0.hereTrue.level, $0.hereMeas.level, $0.hereMeas.uncertain) }))
 for env in envs {
     let sel = outs.filter { $0.trial.env.name == env.name }
-    print("    \(env.name)で測定: " + agreement(sel.map { ($0.hereTrue.level, $0.hereMeas.level) }))
+    print("    \(env.name)で測定: " + agreement(sel.map { ($0.hereTrue.level, $0.hereMeas.level, $0.hereMeas.uncertain) }))
 }
 print("  場面の物差し（8場面）:")
 for env in envs {
     let sel = outs.filter { $0.trial.env.name == env.name }
-    var pairs: [(Int, Int)] = []
-    for o in sel { for i in 0..<Model.places.count { pairs.append((o.placeTrue[i].level, o.placeMeas[i].level)) } }
+    var pairs: [(Int, Int, Bool)] = []
+    for o in sel { for i in 0..<Model.places.count { pairs.append((o.placeTrue[i].level, o.placeMeas[i].level, o.placeMeas[i].uncertain)) } }
     print("    \(env.name)で測定: " + agreement(pairs))
 }
 

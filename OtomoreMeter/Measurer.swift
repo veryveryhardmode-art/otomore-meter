@@ -151,7 +151,7 @@ final class Measurer: ObservableObject {
         }
         lock.lock()
         collecting = false
-        let powers = analyzer?.meanPowers() ?? []
+        let powers = analyzer?.robustPowers() ?? []
         let n = analyzer?.count ?? 0
         lock.unlock()
         if n == 0 { throw MeasureError.noInput }

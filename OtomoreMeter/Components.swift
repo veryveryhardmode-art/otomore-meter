@@ -100,6 +100,11 @@ struct PlaceRow: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
                     .monospacedDigit()
+                if eval.uncertain && eval.level > 0 {
+                    Text("測りきれず・これ以下")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
             }
         }
         .padding(.vertical, 2)
@@ -145,11 +150,15 @@ struct PlaceDetailView: View {
             return "音が出ていないので、漏れもありません。"
         }
         let amb = max(eval.ambient[i], Model.hearing[i])
-        var s = "いちばん目立つのは \(Model.bandLabels[i])Hz 帯です。隣の人の耳の位置で約\(Int(n.rounded()))dB、周りの音は約\(Int(amb.rounded()))dB（差 \(signedText(g))dB）。"
+        let leakText = n < 0 ? "0dB未満（ほぼ無音）" : "約\(Int(n.rounded()))dB"
+        var s = "いちばん目立つのは \(Model.bandLabels[i])Hz 帯です。隣の人の耳の位置で\(leakText)、周りの音は約\(Int(amb.rounded()))dB（差 \(signedText(g))dB）。"
         if i >= 4 {
             s += "高い音ほどイヤホンから漏れやすく、乗り物の騒音（低い音が中心）にも埋もれにくいので、シャカシャカ音として目立ちます。"
         } else if i <= 2 {
             s += "低めの音が漏れています。耳への密着が甘いと低音が抜けやすくなります。"
+        }
+        if eval.uncertain {
+            s += "この帯域の漏れは周りの音に埋もれて測れなかったので、ここでの漏れ音は「これ以下」という上限です。静かな場所で測り直すと正確になります。"
         }
         return s
     }
@@ -186,6 +195,11 @@ struct PlaceDetailView: View {
                     legendItem(color: Palette.level(2), text: "隣の人の耳に届く漏れ音（色は目立ち具合）")
                 }
                 .font(.caption)
+                if !eval.neighbor.contains(where: { ($0 ?? -1) > 0 }) {
+                    Text("漏れ音が小さすぎて、グラフには出ていません。")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
                 Text(note)
                     .font(.footnote)
             } header: {

@@ -30,6 +30,8 @@ final class BandAnalyzer {
     private var stages: [[Biquad]]
     private(set) var sums: [Double]
     private(set) var count = 0
+    /// かたまり（約85ms）ごとのパワー。突発音に強い中央値を出すために残す
+    private(set) var chunkPowers: [[Double]]
     let valid: [Bool]
 
     init(sampleRate fs: Double) {
@@ -45,10 +47,14 @@ final class BandAnalyzer {
         stages = st
         valid = ok
         sums = Array(repeating: 0, count: Model.bandFreqs.count)
+        chunkPowers = Array(repeating: [], count: Model.bandFreqs.count)
     }
 
     func reset() {
-        for i in 0..<sums.count { sums[i] = 0 }
+        for i in 0..<sums.count {
+            sums[i] = 0
+            chunkPowers[i].removeAll(keepingCapacity: true)
+        }
         count = 0
     }
 
@@ -64,7 +70,10 @@ final class BandAnalyzer {
             }
             stages[b][0] = s1
             stages[b][1] = s2
-            if accumulate { sums[b] += acc }
+            if accumulate {
+                sums[b] += acc
+                chunkPowers[b].append(acc / Double(n))
+            }
         }
         if accumulate { count += n }
     }
@@ -72,6 +81,16 @@ final class BandAnalyzer {
     func meanPowers() -> [Double] {
         let c = Double(count)
         return sums.map { count > 0 ? $0 / c : 0 }
+    }
+
+    /// かたまりごとのパワーの中央値（話し声やアナウンスが一瞬入っても引っぱられにくい）
+    func robustPowers() -> [Double] {
+        chunkPowers.map { arr in
+            guard !arr.isEmpty else { return 0 }
+            let s = arr.sorted()
+            let m = s.count / 2
+            return s.count % 2 == 1 ? s[m] : (s[m - 1] + s[m]) / 2
+        }
     }
 }
 
